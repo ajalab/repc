@@ -1,13 +1,14 @@
+mod candidate;
 mod deadline_clock;
 mod error;
-mod heartbeater;
+mod follower;
+mod leader;
 mod log;
 mod message;
 mod node;
 mod peer;
-// mod replicator;
-mod leader;
 mod rpc;
+mod state;
 mod types;
 
 pub use node::Cluster;

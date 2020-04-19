@@ -1,5 +1,5 @@
 use crate::rpc::raft;
-use crate::types::{NodeId, Term};
+use crate::types::NodeId;
 use tokio::sync::mpsc;
 
 #[derive(Clone)]

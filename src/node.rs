@@ -1,17 +1,19 @@
+use std::cmp;
 use std::collections::{HashMap, HashSet};
 use std::error;
-
-use log::{info, warn};
 use std::sync::Arc;
+
+use log::{debug, info, warn};
 use tokio::sync::{mpsc, RwLock};
 
-use crate::deadline_clock;
-use crate::error::InvalidStateError;
+use crate::candidate;
+use crate::follower;
 use crate::leader;
 use crate::log::{Log, LogEntry};
 use crate::message::Message;
 use crate::peer;
 use crate::rpc::raft;
+use crate::state::State;
 use crate::types::{LogIndex, NodeId, Term};
 
 #[derive(Default)]
@@ -58,7 +60,7 @@ impl Node {
             term: 1,
             voted_for: None,
             log: Arc::default(),
-            state: State::Stopped,
+            state: State::new(),
             tx,
             rx,
             peers: HashMap::new(),
@@ -88,8 +90,12 @@ impl Node {
 
     // Update the node's term and return to Follower state,
     // if the term of the request is newer than the node's current term.
-    fn update_term(&mut self, req_term: Term) {
+    fn update_term(&mut self, req_id: NodeId, req_term: Term) {
         if req_term > self.term {
+            info!(
+                "id={}, term={}, message=\"receive a request from {} which has higher term: {}\"",
+                self.id, self.term, req_id, req_term,
+            );
             self.term = req_term;
             self.voted_for = None;
             if self.state.to_ident() != State::FOLLOWER {
@@ -103,7 +109,7 @@ impl Node {
         req: raft::RequestVoteRequest,
         mut tx: mpsc::Sender<raft::RequestVoteResponse>,
     ) -> Result<(), Box<dyn error::Error>> {
-        self.update_term(req.term);
+        self.update_term(req.candidate_id, req.term);
 
         // invariant: req.term <= self.term
 
@@ -115,11 +121,34 @@ impl Node {
 
         let vote_granted = valid_term && valid_candidate && {
             let last_term_index = self.get_last_log_term_index().await;
-            (req.last_log_term, req.last_log_index) > last_term_index
+            (req.last_log_term, req.last_log_index) >= last_term_index
         };
 
         if vote_granted && self.voted_for == None {
             self.voted_for = Some(req.candidate_id);
+        }
+
+        if vote_granted {
+            debug!(
+                "id={}, term={}, message=\"granted vote from {}\"",
+                self.id, self.term, req.candidate_id
+            );
+        } else if !valid_term {
+            debug!(
+                "id={}, term={}, message=\"refused vote from {} because the request has invalid term: {}\"",
+                self.id, self.term, req.candidate_id, req.term,
+            );
+        } else if !valid_candidate {
+            debug!(
+                "id={}, term={}, message=\"refused vote from {} because we have voted to another: {:?}\"",
+                self.id, self.term, req.candidate_id, self.voted_for,
+            );
+        } else {
+            debug!(
+                "id={}, term={}, message=\"refused vote from {} because the request has outdated last log term & index: ({}, {})\"",
+                self.id, self.term, req.candidate_id,
+                req.last_log_term, req.last_log_index,
+            );
         }
 
         let term = self.term;
@@ -140,26 +169,36 @@ impl Node {
         res: raft::RequestVoteResponse,
         id: NodeId,
     ) -> Result<(), Box<dyn error::Error>> {
-        if let State::Candidate { ref mut votes } = self.state {
+        if let State::Candidate { ref mut votes, .. } = self.state {
             if self.term != res.term {
-                log::trace!(
-                    "term={}: received vote from {}, which belongs to the different term: {}",
-                    self.term,
-                    id,
-                    res.term,
+                debug!(
+                    "id={}, term={}, message=\"received vote from {}, which belongs to the different term: {}\"",
+                    self.id, self.term, id, res.term,
+                );
+                return Ok(());
+            }
+
+            if !res.vote_granted {
+                debug!(
+                    "id={}, term={}, message=\"vote requested to {} is refused\"",
+                    self.id, self.term, id,
                 );
                 return Ok(());
             }
 
             if !votes.insert(id) {
-                log::trace!(
-                    "term={}: received vote from {}, which already granted my vote in the current term",
-                    self.term, id,
+                debug!(
+                    "id={}, term={}, message=\"received vote from {}, which already granted my vote in the current term\"",
+                    self.id, self.term, id,
                 );
                 return Ok(());
             }
 
             if votes.len() > self.cluster.len() / 2 {
+                info!(
+                    "id={}, term={}, message=\"get a majority of votes from {:?}\"",
+                    self.id, self.term, votes,
+                );
                 self.trans_state_leader();
             }
         }
@@ -171,7 +210,7 @@ impl Node {
         req: raft::AppendEntriesRequest,
         tx: mpsc::Sender<raft::AppendEntriesResponse>,
     ) -> Result<(), Box<dyn error::Error>> {
-        self.update_term(req.term);
+        self.update_term(req.leader_id, req.term);
 
         // invariant:
         //   req.term <= self.term
@@ -195,6 +234,7 @@ impl Node {
             }
         }
 
+        // append log
         let mut i = 0;
         for e in req.entries.iter() {
             let index = req.prev_log_index + 1 + i;
@@ -218,10 +258,14 @@ impl Node {
                 .map(|e| LogEntry::new(e.term)),
         );
 
+        // commit log
+        let last_committed_index = log.last_committed();
+        log.commit(cmp::min(req.last_committed_index, last_committed_index));
+
         self.send_append_entries_response(tx, true);
 
-        if let State::Follower { ref mut et_reset } = self.state {
-            et_reset.reset().await?;
+        if let State::Follower { ref mut follower } = self.state {
+            follower.reset_deadline().await?;
         }
 
         Ok(())
@@ -242,8 +286,6 @@ impl Node {
     }
 
     async fn handle_election_timeout(&mut self) -> Result<(), Box<dyn error::Error>> {
-        self.assert_state(State::FOLLOWER)?;
-
         self.term += 1;
         self.trans_state_candidate();
 
@@ -280,15 +322,6 @@ impl Node {
         Ok(())
     }
 
-    fn assert_state(&self, expected: &'static str) -> Result<(), InvalidStateError> {
-        let actual = self.state.to_ident();
-        if actual == expected {
-            Ok(())
-        } else {
-            Err(InvalidStateError::new(actual, expected))
-        }
-    }
-
     fn trans_state_follower(&mut self) {
         info!(
             "id={}, term={}, state={}, message=\"{}\"",
@@ -298,28 +331,9 @@ impl Node {
             "become a follower."
         );
 
-        let (dc, et_reset) = deadline_clock::clock(2500);
-        self.state = State::Follower { et_reset };
-
-        let id = self.id;
-        let term = self.term;
-        let mut tx = self.tx.clone();
-
-        // TODO: separate?
-        tokio::spawn(async move {
-            if dc.run().await.is_ok() {
-                if let Err(e) = tx.send(Message::ElectionTimeout).await {
-                    warn!(
-                        "id={}, term={}, state={}, message=\"{}: {}\"",
-                        id,
-                        term,
-                        State::FOLLOWER,
-                        "failed to send message ElectionTimeout",
-                        e
-                    );
-                }
-            }
-        });
+        self.state = State::Follower {
+            follower: follower::Follower::spawn(self.id, self.term, self.tx.clone()),
+        };
     }
 
     fn trans_state_candidate(&mut self) {
@@ -334,7 +348,11 @@ impl Node {
         let mut votes = HashSet::new();
         votes.insert(self.id);
 
-        self.state = State::Candidate { votes };
+        self.state = State::Candidate {
+            candidate: candidate::Candidate::spawn(self.id, self.term, self.tx.clone()),
+            votes,
+        };
+        self.voted_for = Some(self.id);
     }
 
     fn trans_state_leader(&mut self) {
@@ -347,7 +365,7 @@ impl Node {
         );
 
         self.state = State::Leader {
-            leader: leader::Leader::spawn(self.id, self.term, self.log, &self.peers).await,
+            leader: leader::Leader::spawn(self.id, self.term, self.log.clone(), &self.peers),
         };
     }
 
@@ -387,28 +405,5 @@ impl Node {
         let log = self.log.as_ref().read().await;
 
         (log.last_term(), log.last_index())
-    }
-}
-
-pub enum State {
-    Stopped,
-    Follower { et_reset: deadline_clock::Reset },
-    Candidate { votes: HashSet<NodeId> },
-    Leader { leader: leader::Leader },
-}
-
-impl State {
-    const STOPPED: &'static str = "stopped";
-    const FOLLOWER: &'static str = "follower";
-    const CANDIDATE: &'static str = "candidate";
-    const LEADER: &'static str = "leader";
-
-    pub fn to_ident(&self) -> &'static str {
-        match self {
-            State::Stopped => State::STOPPED,
-            State::Follower { .. } => State::FOLLOWER,
-            State::Candidate { .. } => State::CANDIDATE,
-            State::Leader { .. } => State::LEADER,
-        }
     }
 }

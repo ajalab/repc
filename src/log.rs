@@ -24,13 +24,14 @@ pub struct Log {
 
 impl Log {
     pub fn get(&self, i: LogIndex) -> Option<&LogEntry> {
-        if 0 < i && i - 1 < self.entries.len() as u64 {
+        if 0 < i && i <= self.last_index() {
             Some(&self.entries[i as usize - 1])
         } else {
             None
         }
     }
 
+    // Append log entries
     pub fn append(&mut self, entries: impl Iterator<Item = LogEntry>) {
         self.entries.extend(entries);
     }
@@ -40,9 +41,14 @@ impl Log {
         self.entries.truncate((i - 1) as usize);
     }
 
+    // Commit log entires
+    pub fn commit(&mut self, i: LogIndex) {
+        self.last_committed = i;
+    }
+
     /// Returns the term of the last log entry.
     pub fn last_term(&self) -> LogIndex {
-        self.entries.first().map(|e| e.term).unwrap_or(0)
+        self.entries.last().map(|e| e.term).unwrap_or(0)
     }
 
     /// Returns the index of the last appended log entry.
@@ -58,9 +64,5 @@ impl Log {
     /// Returns the index of the last log entry applied to the state machine.
     pub fn last_applied(&self) -> LogIndex {
         self.last_applied
-    }
-
-    pub fn entries(&self) -> &Vec<LogEntry> {
-        &self.entries
     }
 }

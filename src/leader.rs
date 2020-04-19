@@ -1,8 +1,8 @@
-use crate::error::PeerError;
-use crate::log::{Log, LogEntry};
+use crate::log::Log;
 use crate::peer;
 use crate::rpc::raft;
 use crate::types::{LogIndex, NodeId, Term};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,23 +11,25 @@ use tokio::time;
 
 const LEADER_PEER_BUFFER_SIZE: usize = 10;
 
+struct NotifyAppend;
+
 pub struct Leader {
     tx: mpsc::Sender<()>,
 }
 
 impl Leader {
-    pub async fn spawn(
+    pub fn spawn(
         id: NodeId,
         term: Term,
         log: Arc<RwLock<Log>>,
         peers: &HashMap<NodeId, peer::GRPCPeer>,
     ) -> Self {
-        let next_index = log.read().await.last_index() + 1;
-
-        let match_index = 0;
         let appenders = peers
             .iter()
-            .map(|(_, peer)| Appender::spawn(id, term, next_index, peer.clone(), log.clone()))
+            .map(|(&target_id, peer)| {
+                debug!("spawn a new appender<{}>", target_id);
+                Appender::spawn(id, term, target_id, peer.clone(), log.clone())
+            })
             .collect::<Vec<_>>();
 
         let (tx, rx) = mpsc::channel::<()>(LEADER_PEER_BUFFER_SIZE);
@@ -50,8 +52,10 @@ impl LeaderProcess {
     async fn run(mut self) {}
 }
 
+#[derive(Clone)]
 struct Appender {
-    tx: mpsc::Sender<()>,
+    target_id: NodeId,
+    tx: mpsc::Sender<NotifyAppend>,
 }
 
 const APPENDER_CHANNEL_BUFFER_SIZE: usize = 10;
@@ -60,34 +64,41 @@ impl Appender {
     fn spawn(
         id: NodeId,
         term: Term,
-        next_index: LogIndex,
+        target_id: NodeId,
         peer: peer::GRPCPeer,
         log: Arc<RwLock<Log>>,
     ) -> Self {
-        let (tx, rx) = mpsc::channel::<()>(APPENDER_CHANNEL_BUFFER_SIZE);
-        let appender = Appender { tx };
-        let process = AppenderProcess {
-            id,
-            term,
-            next_index,
-            match_index: 0,
-            peer,
-            rx,
-            log,
-        };
+        let (tx, rx) = mpsc::channel::<NotifyAppend>(APPENDER_CHANNEL_BUFFER_SIZE);
+        let appender = Appender { target_id, tx };
+        let process = AppenderProcess::new(id, term, target_id, peer, rx, log);
 
-        tokio::spawn(process.run());
+        let mut a = appender.clone();
+        tokio::spawn(async move {
+            // Notify to appender beforehand to send heartbeat immediately
+            if let Err(e) = a.notify().await {
+                warn!("{}", e);
+            };
+
+            process.run().await;
+        });
         appender
+    }
+
+    async fn notify(&mut self) -> Result<(), mpsc::error::SendError<NotifyAppend>> {
+        debug!("notify to appender<{}>", self.target_id);
+        self.tx.send(NotifyAppend {}).await
     }
 }
 
 struct AppenderProcess {
     id: NodeId,
     term: Term,
+    target_id: NodeId,
+    peer: peer::GRPCPeer,
+    rx: mpsc::Receiver<NotifyAppend>,
+
     next_index: LogIndex,
     match_index: LogIndex,
-    peer: peer::GRPCPeer,
-    rx: mpsc::Receiver<()>,
 
     log: Arc<RwLock<Log>>,
 }
@@ -96,45 +107,80 @@ const WAIT_NOTIFY_APPEND_TIMEOUT_MILLIS: u64 = 500;
 const WAIT_APPEND_ENTRIES_RES_TIMEOUT_MILLIS: u64 = 500;
 
 impl AppenderProcess {
+    fn new(
+        id: NodeId,
+        term: Term,
+        target_id: NodeId,
+        peer: peer::GRPCPeer,
+        rx: mpsc::Receiver<NotifyAppend>,
+        log: Arc<RwLock<Log>>,
+    ) -> Self {
+        AppenderProcess {
+            id,
+            term,
+            target_id,
+            peer,
+            rx,
+            next_index: 0,
+            match_index: 0,
+
+            log,
+        }
+    }
+
     async fn run(mut self) {
+        info!("start appender process: target_id={}", self.target_id);
+
+        self.next_index = {
+            let log = self.log.read().await;
+            log.last_index() + 1
+        };
+        self.match_index = 0;
+
         loop {
-            let f = time::timeout(
+            debug!(
+                "id={}, term={}, message=\"wait for heartbeat timeout or notification\"",
+                self.id, self.term,
+            );
+            let wait = time::timeout(
                 Duration::from_millis(WAIT_NOTIFY_APPEND_TIMEOUT_MILLIS),
                 self.wait_notify_append(),
             )
             .await;
-            if let Ok(None) = f {
+            if let Ok(None) = wait {
                 break;
             }
 
-            let res = time::timeout(
-                Duration::from_millis(WAIT_APPEND_ENTRIES_RES_TIMEOUT_MILLIS),
-                self.append_entries(),
-            )
-            .await;
-        }
-    }
+            let log = self.log.read().await;
 
-    async fn wait_notify_append(&mut self) -> Option<()> {
-        self.rx.recv().await
-    }
-
-    async fn append_entries(&mut self) -> Result<raft::AppendEntriesResponse, PeerError> {
-        let log = self.log.read().await;
-
-        let prev_log_index = self.next_index - 1;
-        let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
-        let last_committed_index = log.last_committed();
-
-        self.peer
-            .append_entries(raft::AppendEntriesRequest {
+            let prev_log_index = self.next_index - 1;
+            let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
+            let last_committed_index = log.last_committed();
+            let entries: Vec<raft::LogEntry> = vec![];
+            let append_entries = self.peer.append_entries(raft::AppendEntriesRequest {
                 leader_id: self.id,
                 term: self.term,
                 prev_log_index,
                 prev_log_term,
                 last_committed_index,
                 entries: vec![], // TODO
-            })
-            .await
+            });
+
+            let res = time::timeout(
+                Duration::from_millis(WAIT_APPEND_ENTRIES_RES_TIMEOUT_MILLIS),
+                append_entries,
+            )
+            .await;
+
+            if let Ok(Ok(res)) = res {
+                if res.success {
+                    self.match_index = prev_log_index + (entries.len() as LogIndex);
+                }
+            }
+        }
+    }
+
+    async fn wait_notify_append(&mut self) -> Option<NotifyAppend> {
+        self.rx.recv().await
     }
 }
