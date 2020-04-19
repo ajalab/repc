@@ -5,15 +5,13 @@ use tokio::sync::mpsc;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
+use crate::grpc::raft_server::{self, Raft};
+use crate::grpc::{
+    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+};
 use crate::message::Message;
 use crate::node;
 use crate::types::NodeId;
-use raft::raft_server::{self, Raft};
-use raft::{AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse};
-
-pub mod raft {
-    tonic::include_proto!("raft");
-}
 
 pub struct RaftServer {
     tx_msg: mpsc::Sender<Message>,

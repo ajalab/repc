@@ -10,6 +10,9 @@ mod peer;
 mod rpc;
 mod state;
 mod types;
+mod grpc {
+    tonic::include_proto!("raft");
+}
 
 pub use node::Cluster;
 pub use rpc::GRPCNode;

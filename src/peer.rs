@@ -1,5 +1,5 @@
 use crate::error::{ConnectionError, PeerError};
-use crate::rpc::raft::{self, raft_client};
+use crate::grpc::{self, raft_client};
 
 use std::error;
 
@@ -47,8 +47,8 @@ impl GRPCPeer {
 
     pub async fn request_vote(
         &mut self,
-        req: raft::RequestVoteRequest,
-    ) -> Result<raft::RequestVoteResponse, PeerError> {
+        req: grpc::RequestVoteRequest,
+    ) -> Result<grpc::RequestVoteResponse, PeerError> {
         self.client
             .request_vote(req)
             .await
@@ -58,8 +58,8 @@ impl GRPCPeer {
 
     pub async fn append_entries(
         &mut self,
-        req: raft::AppendEntriesRequest,
-    ) -> Result<raft::AppendEntriesResponse, PeerError> {
+        req: grpc::AppendEntriesRequest,
+    ) -> Result<grpc::AppendEntriesResponse, PeerError> {
         self.client
             .append_entries(req)
             .await

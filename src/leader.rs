@@ -1,6 +1,6 @@
+use crate::grpc;
 use crate::log::Log;
 use crate::peer;
-use crate::rpc::raft;
 use crate::types::{LogIndex, NodeId, Term};
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -156,8 +156,8 @@ impl AppenderProcess {
             let prev_log_index = self.next_index - 1;
             let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
             let last_committed_index = log.last_committed();
-            let entries: Vec<raft::LogEntry> = vec![];
-            let append_entries = self.peer.append_entries(raft::AppendEntriesRequest {
+            let entries: Vec<grpc::LogEntry> = vec![];
+            let append_entries = self.peer.append_entries(grpc::AppendEntriesRequest {
                 leader_id: self.id,
                 term: self.term,
                 prev_log_index,

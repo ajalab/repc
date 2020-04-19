@@ -8,11 +8,11 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::candidate;
 use crate::follower;
+use crate::grpc;
 use crate::leader;
 use crate::log::{Log, LogEntry};
 use crate::message::Message;
 use crate::peer;
-use crate::rpc::raft;
 use crate::state::State;
 use crate::types::{LogIndex, NodeId, Term};
 
@@ -106,8 +106,8 @@ impl Node {
 
     async fn handle_request_vote_request(
         &mut self,
-        req: raft::RequestVoteRequest,
-        mut tx: mpsc::Sender<raft::RequestVoteResponse>,
+        req: grpc::RequestVoteRequest,
+        mut tx: mpsc::Sender<grpc::RequestVoteResponse>,
     ) -> Result<(), Box<dyn error::Error>> {
         self.update_term(req.candidate_id, req.term);
 
@@ -154,7 +154,7 @@ impl Node {
         let term = self.term;
         tokio::spawn(async move {
             let r = tx
-                .send(raft::RequestVoteResponse { term, vote_granted })
+                .send(grpc::RequestVoteResponse { term, vote_granted })
                 .await;
 
             if let Err(e) = r {
@@ -166,7 +166,7 @@ impl Node {
 
     async fn handle_request_vote_response(
         &mut self,
-        res: raft::RequestVoteResponse,
+        res: grpc::RequestVoteResponse,
         id: NodeId,
     ) -> Result<(), Box<dyn error::Error>> {
         if let State::Candidate { ref mut votes, .. } = self.state {
@@ -207,8 +207,8 @@ impl Node {
 
     async fn handle_append_entries_request(
         &mut self,
-        req: raft::AppendEntriesRequest,
-        tx: mpsc::Sender<raft::AppendEntriesResponse>,
+        req: grpc::AppendEntriesRequest,
+        tx: mpsc::Sender<grpc::AppendEntriesResponse>,
     ) -> Result<(), Box<dyn error::Error>> {
         self.update_term(req.leader_id, req.term);
 
@@ -273,12 +273,12 @@ impl Node {
 
     fn send_append_entries_response(
         &self,
-        mut tx: mpsc::Sender<raft::AppendEntriesResponse>,
+        mut tx: mpsc::Sender<grpc::AppendEntriesResponse>,
         success: bool,
     ) {
         let term = self.term;
         tokio::spawn(async move {
-            let r = tx.send(raft::AppendEntriesResponse { term, success }).await;
+            let r = tx.send(grpc::AppendEntriesResponse { term, success }).await;
             if let Err(e) = r {
                 warn!("{}", e);
             }
@@ -297,7 +297,7 @@ impl Node {
             let candidate_id = self.id;
             tokio::spawn(async move {
                 let res = peer
-                    .request_vote(raft::RequestVoteRequest {
+                    .request_vote(grpc::RequestVoteRequest {
                         term,
                         candidate_id,
                         last_log_index,
