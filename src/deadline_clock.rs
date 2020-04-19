@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use log::debug;
 use tokio::sync::mpsc;
 use tokio::time::Duration;
 
@@ -51,11 +52,15 @@ impl DeadlineClockProcess {
                 }
                 Ok(None) => {
                     // closed
-                    break Err(Closed);
+                    debug!("deadline clock process is terminated since the owner is dropped");
+                    return Err(Closed);
                 }
                 Err(_) => {
                     // timeout
-                    break Ok(());
+                    debug!(
+                        "deadline clock process is terminated since the time reached the deadline"
+                    );
+                    return Ok(());
                 }
             }
         }

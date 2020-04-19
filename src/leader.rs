@@ -2,6 +2,7 @@ use crate::grpc;
 use crate::log::Log;
 use crate::peer;
 use crate::types::{LogIndex, NodeId, Term};
+use futures::future::try_join_all;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,10 +12,17 @@ use tokio::time;
 
 const LEADER_PEER_BUFFER_SIZE: usize = 10;
 
-struct NotifyAppend;
+struct NotifyAppendToAppender;
+struct NotifyAppendToLeader;
 
 pub struct Leader {
-    tx: mpsc::Sender<()>,
+    tx: mpsc::Sender<NotifyAppendToLeader>,
+}
+
+impl Drop for Leader {
+    fn drop(&mut self) {
+        debug!("dropping leader");
+    }
 }
 
 impl Leader {
@@ -32,7 +40,7 @@ impl Leader {
             })
             .collect::<Vec<_>>();
 
-        let (tx, rx) = mpsc::channel::<()>(LEADER_PEER_BUFFER_SIZE);
+        let (tx, rx) = mpsc::channel::<NotifyAppendToLeader>(LEADER_PEER_BUFFER_SIZE);
         let leader = Leader { tx };
         let process = LeaderProcess { log, rx, appenders };
 
@@ -44,18 +52,40 @@ impl Leader {
 
 struct LeaderProcess {
     log: Arc<RwLock<Log>>,
-    rx: mpsc::Receiver<()>,
+    rx: mpsc::Receiver<NotifyAppendToLeader>,
     appenders: Vec<Appender>,
 }
 
+impl Drop for LeaderProcess {
+    fn drop(&mut self) {
+        debug!("dropping leader process");
+    }
+}
+
 impl LeaderProcess {
-    async fn run(mut self) {}
+    async fn run(mut self) {
+        loop {
+            if self.rx.recv().await.is_none() {
+                break;
+            }
+            if let Err(e) = try_join_all(self.appenders.iter_mut().map(|a| a.notify())).await {
+                warn!("error: {}", e);
+            }
+        }
+        info!("leader process is terminated");
+    }
 }
 
 #[derive(Clone)]
 struct Appender {
     target_id: NodeId,
-    tx: mpsc::Sender<NotifyAppend>,
+    tx: mpsc::Sender<NotifyAppendToAppender>,
+}
+
+impl Drop for Appender {
+    fn drop(&mut self) {
+        debug!("dropping appender with tx: {:?}", self.tx);
+    }
 }
 
 const APPENDER_CHANNEL_BUFFER_SIZE: usize = 10;
@@ -68,7 +98,7 @@ impl Appender {
         peer: peer::GRPCPeer,
         log: Arc<RwLock<Log>>,
     ) -> Self {
-        let (tx, rx) = mpsc::channel::<NotifyAppend>(APPENDER_CHANNEL_BUFFER_SIZE);
+        let (tx, rx) = mpsc::channel::<NotifyAppendToAppender>(APPENDER_CHANNEL_BUFFER_SIZE);
         let appender = Appender { target_id, tx };
         let process = AppenderProcess::new(id, term, target_id, peer, rx, log);
 
@@ -84,9 +114,9 @@ impl Appender {
         appender
     }
 
-    async fn notify(&mut self) -> Result<(), mpsc::error::SendError<NotifyAppend>> {
+    async fn notify(&mut self) -> Result<(), mpsc::error::SendError<NotifyAppendToAppender>> {
         debug!("notify to appender<{}>", self.target_id);
-        self.tx.send(NotifyAppend {}).await
+        self.tx.send(NotifyAppendToAppender {}).await
     }
 }
 
@@ -95,7 +125,7 @@ struct AppenderProcess {
     term: Term,
     target_id: NodeId,
     peer: peer::GRPCPeer,
-    rx: mpsc::Receiver<NotifyAppend>,
+    rx: mpsc::Receiver<NotifyAppendToAppender>,
 
     next_index: LogIndex,
     match_index: LogIndex,
@@ -112,7 +142,7 @@ impl AppenderProcess {
         term: Term,
         target_id: NodeId,
         peer: peer::GRPCPeer,
-        rx: mpsc::Receiver<NotifyAppend>,
+        rx: mpsc::Receiver<NotifyAppendToAppender>,
         log: Arc<RwLock<Log>>,
     ) -> Self {
         AppenderProcess {
@@ -144,9 +174,18 @@ impl AppenderProcess {
             );
             let wait = time::timeout(
                 Duration::from_millis(WAIT_NOTIFY_APPEND_TIMEOUT_MILLIS),
-                self.wait_notify_append(),
+                self.rx.recv(),
             )
             .await;
+            match wait {
+                Ok(None) => break,
+                Ok(Some(_)) => {
+                    debug!("recv");
+                }
+                Err(_) => {
+                    debug!("timeout. send heartbeat");
+                }
+            }
             if let Ok(None) = wait {
                 break;
             }
@@ -178,9 +217,5 @@ impl AppenderProcess {
                 }
             }
         }
-    }
-
-    async fn wait_notify_append(&mut self) -> Option<NotifyAppend> {
-        self.rx.recv().await
     }
 }

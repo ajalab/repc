@@ -11,7 +11,8 @@ pub struct GRPCPeer {
     client: raft_client::RaftClient<tonic::transport::Channel>,
 }
 
-const CONNECTION_RETRY_INTERVAL_MS: u64 = 5000;
+const CONNECTION_RETRY_TIMEOUT_MILLIS: u64 = 5000;
+const CONNECTION_RETRY_INTERVAL_MILLIS: u64 = 5000;
 const CONNECTION_RETRY_MAX: usize = 100;
 
 impl GRPCPeer {
@@ -22,7 +23,7 @@ impl GRPCPeer {
         let addr = "http://".to_string() + addr.as_ref();
         for _ in 0..CONNECTION_RETRY_MAX {
             let f = timeout(
-                Duration::from_millis(5000),
+                Duration::from_millis(CONNECTION_RETRY_TIMEOUT_MILLIS),
                 raft_client::RaftClient::connect(addr.clone()),
             )
             .await;
@@ -37,10 +38,10 @@ impl GRPCPeer {
 
             warn!(
                 "attempt to connect to {} failed: {}. retry in {} ms.",
-                &addr, e, CONNECTION_RETRY_INTERVAL_MS
+                &addr, e, CONNECTION_RETRY_INTERVAL_MILLIS
             );
 
-            tokio::time::delay_for(Duration::from_millis(CONNECTION_RETRY_INTERVAL_MS)).await;
+            tokio::time::delay_for(Duration::from_millis(CONNECTION_RETRY_INTERVAL_MILLIS)).await;
         }
         Err(ConnectionError::new(addr))
     }

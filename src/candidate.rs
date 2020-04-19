@@ -7,7 +7,7 @@ use log::{info, warn};
 use rand::Rng;
 use tokio::sync::mpsc;
 
-const CANDIDATE_ELECTION_TIMEOUT_MILLIS: u64 = 5000;
+const CANDIDATE_ELECTION_TIMEOUT_MILLIS: u64 = 1000;
 const CANDIDATE_ELECTION_TIMETOUT_JITTER_MILLIS: u64 = 5;
 
 pub struct Candidate {

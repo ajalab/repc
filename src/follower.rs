@@ -5,7 +5,7 @@ use crate::types::{NodeId, Term};
 
 use tokio::sync::mpsc;
 
-const FOLLOWER_ELECTION_TIMEOUT_MILLIS: u64 = 5000;
+const FOLLOWER_ELECTION_TIMEOUT_MILLIS: u64 = 1000;
 
 pub struct Follower {
     deadline_clock: DeadlineClock,
