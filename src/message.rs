@@ -1,26 +1,28 @@
-use crate::grpc;
+use crate::pb::{
+    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+};
 use crate::types::NodeId;
 use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub enum Message {
     RPCRequestVoteRequest {
-        req: grpc::RequestVoteRequest,
-        tx: mpsc::Sender<grpc::RequestVoteResponse>,
+        req: RequestVoteRequest,
+        tx: mpsc::Sender<RequestVoteResponse>,
     },
 
     RPCRequestVoteResponse {
-        res: grpc::RequestVoteResponse,
+        res: RequestVoteResponse,
         id: NodeId,
     },
 
     RPCAppendEntriesRequest {
-        req: grpc::AppendEntriesRequest,
-        tx: mpsc::Sender<grpc::AppendEntriesResponse>,
+        req: AppendEntriesRequest,
+        tx: mpsc::Sender<AppendEntriesResponse>,
     },
 
     RPCAppendEntriesResponse {
-        res: grpc::AppendEntriesResponse,
+        res: AppendEntriesResponse,
         id: NodeId,
     },
 

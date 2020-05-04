@@ -7,37 +7,19 @@ use log::{debug, info, warn};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::candidate;
+use crate::configuration::Configuration;
 use crate::follower;
-use crate::grpc;
 use crate::leader;
 use crate::log::{Log, LogEntry};
 use crate::message::Message;
-use crate::peer;
+use crate::pb;
+use crate::peer::Peer;
 use crate::state::State;
 use crate::types::{LogIndex, NodeId, Term};
 
-#[derive(Default)]
-pub struct Cluster {
-    nodes: HashMap<NodeId, String>,
-}
-
-impl Cluster {
-    pub fn add<T: Into<String>>(&mut self, id: NodeId, addr: T) {
-        self.nodes.insert(id, addr.into());
-    }
-
-    pub fn len(&self) -> usize {
-        self.nodes.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
-    }
-}
-
-pub struct Node {
+pub struct Node<P: Peer + Clone + Send + Sync + 'static> {
     id: NodeId,
-    cluster: Cluster,
+    conf: Arc<Configuration>,
 
     // TODO: make these persistent
     term: Term,
@@ -48,15 +30,15 @@ pub struct Node {
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
-    peers: HashMap<NodeId, peer::GRPCPeer>,
+    peers: HashMap<NodeId, P>,
 }
 
-impl Node {
-    pub fn new(id: NodeId, cluster: Cluster) -> Self {
+impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
+    pub fn new(id: NodeId, conf: Configuration) -> Self {
         let (tx, rx) = mpsc::channel(100);
         Node {
             id,
-            cluster,
+            conf: Arc::new(conf),
             term: 1,
             voted_for: None,
             log: Arc::default(),
@@ -67,7 +49,7 @@ impl Node {
         }
     }
 
-    async fn handle_messages(&mut self) -> Result<(), Box<dyn error::Error>> {
+    async fn handle_messages(&mut self) -> Result<(), Box<dyn error::Error + Send>> {
         while let Some(msg) = self.rx.recv().await {
             match msg {
                 Message::RPCRequestVoteRequest { req, tx } => {
@@ -106,9 +88,9 @@ impl Node {
 
     async fn handle_request_vote_request(
         &mut self,
-        req: grpc::RequestVoteRequest,
-        mut tx: mpsc::Sender<grpc::RequestVoteResponse>,
-    ) -> Result<(), Box<dyn error::Error>> {
+        req: pb::RequestVoteRequest,
+        mut tx: mpsc::Sender<pb::RequestVoteResponse>,
+    ) -> Result<(), Box<dyn error::Error + Send>> {
         self.update_term(req.candidate_id, req.term);
 
         // invariant: req.term <= self.term
@@ -154,7 +136,7 @@ impl Node {
         let term = self.term;
         tokio::spawn(async move {
             let r = tx
-                .send(grpc::RequestVoteResponse { term, vote_granted })
+                .send(pb::RequestVoteResponse { term, vote_granted })
                 .await;
 
             if let Err(e) = r {
@@ -166,13 +148,13 @@ impl Node {
 
     async fn handle_request_vote_response(
         &mut self,
-        res: grpc::RequestVoteResponse,
+        res: pb::RequestVoteResponse,
         id: NodeId,
-    ) -> Result<(), Box<dyn error::Error>> {
+    ) -> Result<(), Box<dyn error::Error + Send>> {
         if let State::Candidate { ref mut votes, .. } = self.state {
             if self.term != res.term {
                 debug!(
-                    "id={}, term={}, message=\"received vote from {}, which belongs to the different term: {}\"",
+                    "id={}, term={}, message=\"ignored vote from {}, which belongs to the different term: {}\"",
                     self.id, self.term, id, res.term,
                 );
                 return Ok(());
@@ -194,7 +176,7 @@ impl Node {
                 return Ok(());
             }
 
-            if votes.len() > self.cluster.len() / 2 {
+            if votes.len() > (self.peers.len() + 1) / 2 {
                 info!(
                     "id={}, term={}, message=\"get a majority of votes from {:?}\"",
                     self.id, self.term, votes,
@@ -207,9 +189,9 @@ impl Node {
 
     async fn handle_append_entries_request(
         &mut self,
-        req: grpc::AppendEntriesRequest,
-        tx: mpsc::Sender<grpc::AppendEntriesResponse>,
-    ) -> Result<(), Box<dyn error::Error>> {
+        req: pb::AppendEntriesRequest,
+        tx: mpsc::Sender<pb::AppendEntriesResponse>,
+    ) -> Result<(), Box<dyn error::Error + Send>> {
         self.update_term(req.leader_id, req.term);
 
         // invariant:
@@ -265,7 +247,9 @@ impl Node {
         self.send_append_entries_response(tx, true);
 
         if let State::Follower { ref mut follower } = self.state {
-            follower.reset_deadline().await?;
+            if let Err(e) = follower.reset_deadline().await {
+                warn!("failed to reset deadline: {}", e);
+            };
         }
 
         Ok(())
@@ -273,31 +257,31 @@ impl Node {
 
     fn send_append_entries_response(
         &self,
-        mut tx: mpsc::Sender<grpc::AppendEntriesResponse>,
+        mut tx: mpsc::Sender<pb::AppendEntriesResponse>,
         success: bool,
     ) {
         let term = self.term;
         tokio::spawn(async move {
-            let r = tx.send(grpc::AppendEntriesResponse { term, success }).await;
+            let r = tx.send(pb::AppendEntriesResponse { term, success }).await;
             if let Err(e) = r {
                 warn!("{}", e);
             }
         });
     }
 
-    async fn handle_election_timeout(&mut self) -> Result<(), Box<dyn error::Error>> {
+    async fn handle_election_timeout(&mut self) -> Result<(), Box<dyn error::Error + Send>> {
         self.term += 1;
         self.trans_state_candidate();
 
         let (last_log_term, last_log_index) = self.get_last_log_term_index().await;
         for (&id, peer) in self.peers.iter() {
             let mut peer = peer.clone();
-            let mut tx = self.get_tx();
+            let mut tx = self.tx();
             let term = self.term;
             let candidate_id = self.id;
             tokio::spawn(async move {
                 let res = peer
-                    .request_vote(grpc::RequestVoteRequest {
+                    .request_vote(pb::RequestVoteRequest {
                         term,
                         candidate_id,
                         last_log_index,
@@ -332,7 +316,7 @@ impl Node {
         );
 
         self.state = State::Follower {
-            follower: follower::Follower::spawn(self.id, self.term, self.tx.clone()),
+            follower: follower::Follower::spawn(self.id, self.term, self.tx.clone(), &self.conf),
         };
     }
 
@@ -349,7 +333,7 @@ impl Node {
         votes.insert(self.id);
 
         self.state = State::Candidate {
-            candidate: candidate::Candidate::spawn(self.id, self.term, self.tx.clone()),
+            candidate: candidate::Candidate::spawn(self.id, self.term, self.tx.clone(), &self.conf),
             votes,
         };
         self.voted_for = Some(self.id);
@@ -365,39 +349,28 @@ impl Node {
         );
 
         self.state = State::Leader {
-            leader: leader::Leader::spawn(self.id, self.term, self.log.clone(), &self.peers),
+            leader: leader::Leader::spawn(
+                self.id,
+                self.term,
+                self.conf.clone(),
+                self.log.clone(),
+                &self.peers,
+            ),
         };
     }
 
-    pub async fn run(mut self) -> Result<(), Box<dyn error::Error>> {
-        // set up connections to other nodes
-        let mut ids = Vec::new();
-        let mut peer_futures = Vec::new();
-        for (id, addr) in self.cluster.nodes.iter() {
-            if *id == self.id {
-                continue;
-            }
-            ids.push(*id);
-            peer_futures.push(peer::GRPCPeer::connect(addr));
-        }
-
-        let result = futures::future::try_join_all(peer_futures).await;
-        self.peers = result
-            .map(|peers| ids.into_iter().zip(peers).collect::<Vec<_>>())?
-            .into_iter()
-            .collect();
+    pub async fn run(
+        mut self,
+        peers: HashMap<NodeId, P>,
+    ) -> Result<(), Box<dyn error::Error + Send>> {
+        self.peers = peers;
 
         self.trans_state_follower();
 
         self.handle_messages().await
     }
 
-    pub fn get_addr(&self) -> &String {
-        // TODO: handle errors
-        self.cluster.nodes.get(&self.id).unwrap()
-    }
-
-    pub fn get_tx(&self) -> mpsc::Sender<Message> {
+    pub fn tx(&self) -> mpsc::Sender<Message> {
         self.tx.clone()
     }
 

@@ -1,7 +1,10 @@
 use clap::{App, Arg};
 use env_logger;
 
-use raftr::{Cluster, GRPCNode};
+use std::collections::HashMap;
+
+use raftr::configuration::Configuration;
+use raftr::group::grpc::GRPCRaftGroup;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,13 +15,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
 
     let id: u32 = matches.value_of("id").unwrap().parse()?;
-    let mut cluster = Cluster::default();
-    cluster.add(1, "[::1]:50051");
-    cluster.add(2, "[::1]:50052");
-    cluster.add(3, "[::1]:50053");
+    let mut addrs = HashMap::new();
+    addrs.insert(1, "[::1]:50051".to_owned());
+    addrs.insert(2, "[::1]:50052".to_owned());
+    addrs.insert(3, "[::1]:50053".to_owned());
 
-    let node = GRPCNode::new(id, cluster);
-    node.serve().await?;
+    let conf = Configuration::default();
+    let group = GRPCRaftGroup::new(id, conf, addrs);
+    group.run().await?;
 
     Ok(())
 }

@@ -1,9 +1,11 @@
-use crate::error::{ConnectionError, PeerError};
-use crate::grpc::{self, raft_client};
-
-use std::error;
-
+use crate::pb::{
+    raft_client, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
+};
+use crate::peer::error::{ConnectionError, PeerError};
+use crate::peer::Peer;
 use log::warn;
+use std::error;
 use tokio::time::{timeout, Duration};
 
 #[derive(Clone)]
@@ -45,11 +47,14 @@ impl GRPCPeer {
         }
         Err(ConnectionError::new(addr))
     }
+}
 
-    pub async fn request_vote(
+#[tonic::async_trait]
+impl Peer for GRPCPeer {
+    async fn request_vote(
         &mut self,
-        req: grpc::RequestVoteRequest,
-    ) -> Result<grpc::RequestVoteResponse, PeerError> {
+        req: RequestVoteRequest,
+    ) -> Result<RequestVoteResponse, PeerError> {
         self.client
             .request_vote(req)
             .await
@@ -57,10 +62,10 @@ impl GRPCPeer {
             .map_err(|status| PeerError::new(status.to_string()))
     }
 
-    pub async fn append_entries(
+    async fn append_entries(
         &mut self,
-        req: grpc::AppendEntriesRequest,
-    ) -> Result<grpc::AppendEntriesResponse, PeerError> {
+        req: AppendEntriesRequest,
+    ) -> Result<AppendEntriesResponse, PeerError> {
         self.client
             .append_entries(req)
             .await

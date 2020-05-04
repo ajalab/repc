@@ -1,6 +1,7 @@
-use crate::grpc;
+use crate::configuration::Configuration;
 use crate::log::Log;
-use crate::peer;
+use crate::pb;
+use crate::peer::Peer;
 use crate::types::{LogIndex, NodeId, Term};
 use futures::future::try_join_all;
 use log::{debug, info, warn};
@@ -26,23 +27,29 @@ impl Drop for Leader {
 }
 
 impl Leader {
-    pub fn spawn(
+    pub fn spawn<P: Peer + Send + Sync + Clone + 'static>(
         id: NodeId,
         term: Term,
+        conf: Arc<Configuration>,
         log: Arc<RwLock<Log>>,
-        peers: &HashMap<NodeId, peer::GRPCPeer>,
+        peers: &HashMap<NodeId, P>,
     ) -> Self {
         let appenders = peers
             .iter()
             .map(|(&target_id, peer)| {
                 debug!("spawn a new appender<{}>", target_id);
-                Appender::spawn(id, term, target_id, peer.clone(), log.clone())
+                Appender::spawn(id, term, conf.clone(), target_id, peer.clone(), log.clone())
             })
             .collect::<Vec<_>>();
 
         let (tx, rx) = mpsc::channel::<NotifyAppendToLeader>(LEADER_PEER_BUFFER_SIZE);
         let leader = Leader { tx };
-        let process = LeaderProcess { log, rx, appenders };
+        let process = LeaderProcess {
+            log,
+            rx,
+            appenders,
+            conf: conf,
+        };
 
         tokio::spawn(process.run());
 
@@ -52,14 +59,9 @@ impl Leader {
 
 struct LeaderProcess {
     log: Arc<RwLock<Log>>,
+    conf: Arc<Configuration>,
     rx: mpsc::Receiver<NotifyAppendToLeader>,
     appenders: Vec<Appender>,
-}
-
-impl Drop for LeaderProcess {
-    fn drop(&mut self) {
-        debug!("dropping leader process");
-    }
 }
 
 impl LeaderProcess {
@@ -82,36 +84,32 @@ struct Appender {
     tx: mpsc::Sender<NotifyAppendToAppender>,
 }
 
-impl Drop for Appender {
-    fn drop(&mut self) {
-        debug!("dropping appender with tx: {:?}", self.tx);
-    }
-}
-
 const APPENDER_CHANNEL_BUFFER_SIZE: usize = 10;
 
 impl Appender {
-    fn spawn(
+    fn spawn<P: Peer + Send + Sync + 'static>(
         id: NodeId,
         term: Term,
+        conf: Arc<Configuration>,
         target_id: NodeId,
-        peer: peer::GRPCPeer,
+        peer: P,
         log: Arc<RwLock<Log>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<NotifyAppendToAppender>(APPENDER_CHANNEL_BUFFER_SIZE);
-        let appender = Appender { target_id, tx };
-        let process = AppenderProcess::new(id, term, target_id, peer, rx, log);
+        let mut appender = Appender { target_id, tx };
+        let process = AppenderProcess::new(id, term, conf, target_id, peer, rx, log);
 
-        let mut a = appender.clone();
-        tokio::spawn(async move {
-            // Notify to appender beforehand to send heartbeat immediately
-            if let Err(e) = a.notify().await {
-                warn!("{}", e);
-            };
+        // Notify to appender beforehand to send heartbeat immediately
+        if let Err(e) = appender.try_notify() {
+            warn!("{}", e);
+        }
 
-            process.run().await;
-        });
+        tokio::spawn(process.run());
         appender
+    }
+
+    fn try_notify(&mut self) -> Result<(), mpsc::error::TrySendError<NotifyAppendToAppender>> {
+        self.tx.try_send(NotifyAppendToAppender {})
     }
 
     async fn notify(&mut self) -> Result<(), mpsc::error::SendError<NotifyAppendToAppender>> {
@@ -120,11 +118,12 @@ impl Appender {
     }
 }
 
-struct AppenderProcess {
+struct AppenderProcess<P: Peer> {
     id: NodeId,
     term: Term,
+    conf: Arc<Configuration>,
     target_id: NodeId,
-    peer: peer::GRPCPeer,
+    peer: P,
     rx: mpsc::Receiver<NotifyAppendToAppender>,
 
     next_index: LogIndex,
@@ -133,21 +132,22 @@ struct AppenderProcess {
     log: Arc<RwLock<Log>>,
 }
 
-const WAIT_NOTIFY_APPEND_TIMEOUT_MILLIS: u64 = 500;
 const WAIT_APPEND_ENTRIES_RES_TIMEOUT_MILLIS: u64 = 500;
 
-impl AppenderProcess {
+impl<P: Peer> AppenderProcess<P> {
     fn new(
         id: NodeId,
         term: Term,
+        conf: Arc<Configuration>,
         target_id: NodeId,
-        peer: peer::GRPCPeer,
+        peer: P,
         rx: mpsc::Receiver<NotifyAppendToAppender>,
         log: Arc<RwLock<Log>>,
     ) -> Self {
         AppenderProcess {
             id,
             term,
+            conf,
             target_id,
             peer,
             rx,
@@ -173,15 +173,13 @@ impl AppenderProcess {
                 self.id, self.term,
             );
             let wait = time::timeout(
-                Duration::from_millis(WAIT_NOTIFY_APPEND_TIMEOUT_MILLIS),
+                Duration::from_millis(self.conf.leader.heartbeat_timeout_millis),
                 self.rx.recv(),
             )
             .await;
             match wait {
                 Ok(None) => break,
-                Ok(Some(_)) => {
-                    debug!("recv");
-                }
+                Ok(Some(_)) => {}
                 Err(_) => {
                     debug!("timeout. send heartbeat");
                 }
@@ -195,8 +193,8 @@ impl AppenderProcess {
             let prev_log_index = self.next_index - 1;
             let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
             let last_committed_index = log.last_committed();
-            let entries: Vec<grpc::LogEntry> = vec![];
-            let append_entries = self.peer.append_entries(grpc::AppendEntriesRequest {
+            let entries: Vec<pb::LogEntry> = vec![];
+            let append_entries = self.peer.append_entries(pb::AppendEntriesRequest {
                 leader_id: self.id,
                 term: self.term,
                 prev_log_index,

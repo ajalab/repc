@@ -1,30 +1,25 @@
-use std::error;
-
-use log::info;
 use tokio::sync::mpsc;
-use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
-use crate::grpc::raft_server::{self, Raft};
-use crate::grpc::{
+use crate::message::Message;
+pub use crate::pb::raft_server::Raft;
+use crate::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use crate::message::Message;
-use crate::node;
-use crate::types::NodeId;
 
-pub struct RaftServer {
+#[derive(Clone)]
+pub struct RaftService {
     tx_msg: mpsc::Sender<Message>,
 }
 
-impl RaftServer {
+impl RaftService {
     pub fn new(tx: mpsc::Sender<Message>) -> Self {
-        RaftServer { tx_msg: tx }
+        Self { tx_msg: tx }
     }
 }
 
 #[tonic::async_trait]
-impl Raft for RaftServer {
+impl Raft for RaftService {
     async fn request_vote(
         &self,
         request: Request<RequestVoteRequest>,
@@ -69,31 +64,5 @@ impl Raft for RaftServer {
                 Status::internal("couldn't get a response (maybe the node is going to shut down")
             })
             .map(Response::new)
-    }
-}
-
-pub struct GRPCNode {
-    node: node::Node,
-}
-
-impl GRPCNode {
-    pub fn new(id: NodeId, cluster: node::Cluster) -> Self {
-        GRPCNode {
-            node: node::Node::new(id, cluster),
-        }
-    }
-
-    pub async fn serve(self) -> Result<(), Box<dyn error::Error>> {
-        let server = RaftServer::new(self.node.get_tx());
-        let addr = self.node.get_addr().parse()?;
-        let f1 = Server::builder()
-            .add_service(raft_server::RaftServer::new(server))
-            .serve(addr);
-        let f2 = self.node.run();
-        info!(
-            "start serving gRPC Raft interface on {} for inter-cluster communication",
-            addr
-        );
-        futures::join!(f1, f2).0.map_err(|e| e.into())
     }
 }
