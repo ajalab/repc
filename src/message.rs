@@ -27,4 +27,8 @@ pub enum Message {
     },
 
     ElectionTimeout,
+
+    ClientCommand {
+        
+    }
 }

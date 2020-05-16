@@ -20,12 +20,6 @@ pub struct Leader {
     tx: mpsc::Sender<NotifyAppendToLeader>,
 }
 
-impl Drop for Leader {
-    fn drop(&mut self) {
-        debug!("dropping leader");
-    }
-}
-
 impl Leader {
     pub fn spawn<P: Peer + Send + Sync + Clone + 'static>(
         id: NodeId,
@@ -78,7 +72,6 @@ impl LeaderProcess {
     }
 }
 
-#[derive(Clone)]
 struct Appender {
     target_id: NodeId,
     tx: mpsc::Sender<NotifyAppendToAppender>,

@@ -9,7 +9,7 @@ use rand::Rng;
 use tokio::sync::mpsc;
 
 pub struct Candidate {
-    deadline_clock: DeadlineClock,
+    _deadline_clock: DeadlineClock,
 }
 
 impl Candidate {
@@ -43,6 +43,8 @@ impl Candidate {
             );
         });
 
-        Candidate { deadline_clock }
+        Candidate {
+            _deadline_clock: deadline_clock,
+        }
     }
 }

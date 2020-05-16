@@ -1,7 +1,6 @@
 mod candidate;
 pub mod configuration;
 mod deadline_clock;
-mod error;
 mod follower;
 pub mod group;
 mod leader;
