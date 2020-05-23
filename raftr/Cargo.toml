@@ -1,0 +1,27 @@
+[package]
+name = "raftr"
+version = "0.1.0"
+authors = ["Koki Kato <koki.kato1994@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# tonic = "0.2"
+tonic = { git = "https://github.com/hyperium/tonic", rev = "85ae0a4" }
+bytes = "0.5"
+prost = "0.6"
+http = "0.2"
+tokio = { version = "0.2", features = ["macros", "time", "sync", "stream"] }
+tower-service = { version = "0.3" }
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+futures-retry = "0.4.0"
+futures-util = { version = "0.3" }
+log = "0.4"
+env_logger = "0.7"
+clap = "2.33"
+rand = "0.7"
+
+[build-dependencies]
+tonic-build = "0.2"
+tokio = { version = "0.2", features = ["macros", "time", "sync", "stream", "test-util"] }

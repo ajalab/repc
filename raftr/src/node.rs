@@ -1,11 +1,3 @@
-use std::cmp;
-use std::collections::{HashMap, HashSet};
-use std::error;
-use std::sync::Arc;
-
-use log::{debug, info, warn};
-use tokio::sync::{mpsc, RwLock};
-
 use crate::candidate;
 use crate::configuration::Configuration;
 use crate::follower;
@@ -16,6 +8,13 @@ use crate::pb;
 use crate::peer::Peer;
 use crate::state::State;
 use crate::types::{LogIndex, NodeId, Term};
+use bytes::Bytes;
+use log::{debug, info, warn};
+use std::cmp;
+use std::collections::{HashMap, HashSet};
+use std::error;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
 
 pub struct Node<P: Peer + Clone + Send + Sync + 'static> {
     id: NodeId,
@@ -53,17 +52,20 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
         while let Some(msg) = self.rx.recv().await {
             match msg {
                 Message::RPCRequestVoteRequest { req, tx } => {
-                    self.handle_request_vote_request(req, tx).await?;
+                    self.handle_request_vote_request(req, tx).await?
                 }
+
                 Message::RPCRequestVoteResponse { res, id } => {
-                    self.handle_request_vote_response(res, id).await?;
+                    self.handle_request_vote_response(res, id).await?
                 }
+
                 Message::RPCAppendEntriesRequest { req, tx } => {
-                    self.handle_append_entries_request(req, tx).await?;
+                    self.handle_append_entries_request(req, tx).await?
                 }
-                Message::ElectionTimeout => {
-                    self.handle_election_timeout().await?;
-                }
+
+                Message::ElectionTimeout => self.handle_election_timeout().await?,
+
+                Message::Command { body, tx } => self.handle_command(body, tx).await?,
                 _ => {}
             }
         }
@@ -303,6 +305,15 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
             });
         }
 
+        Ok(())
+    }
+
+    async fn handle_command(
+        &mut self,
+        command: Bytes,
+        tx: mpsc::Sender<Result<(), tonic::Status>>,
+    ) -> Result<(), Box<dyn error::Error + Send>> {
+        if let State::Leader { ref leader } = self.state {}
         Ok(())
     }
 

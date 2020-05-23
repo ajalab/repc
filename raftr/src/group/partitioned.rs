@@ -93,9 +93,7 @@ mod tests {
 
     use super::*;
     use crate::configuration::*;
-    use crate::pb::{
-        AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
-    };
+    use crate::pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
     use crate::peer::partitioned::ReqItem;
 
     fn init() {
@@ -105,8 +103,6 @@ mod tests {
     #[tokio::test]
     async fn initial_election() {
         init();
-        // tokio::time::pause();
-        // tokio::time::advance(Duration::from_millis(1)).await;
         let forever = 1000 * 60 * 60 * 24 * 365;
         let conf1 = Configuration {
             leader: LeaderConfiguration {

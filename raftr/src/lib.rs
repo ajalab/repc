@@ -1,3 +1,4 @@
+mod app;
 mod candidate;
 pub mod configuration;
 mod deadline_clock;
@@ -8,6 +9,7 @@ mod log;
 mod message;
 mod node;
 mod peer;
+mod server;
 mod service;
 mod state;
 mod types;

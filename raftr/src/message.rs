@@ -2,9 +2,11 @@ use crate::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::types::NodeId;
+use bytes::Bytes;
+use std::sync::Arc;
 use tokio::sync::mpsc;
+use tonic::Status;
 
-#[derive(Clone)]
 pub enum Message {
     RPCRequestVoteRequest {
         req: RequestVoteRequest,
@@ -26,9 +28,10 @@ pub enum Message {
         id: NodeId,
     },
 
-    ElectionTimeout,
+    Command {
+        body: Bytes,
+        tx: mpsc::Sender<Result<(), Status>>,
+    },
 
-    ClientCommand {
-        
-    }
+    ElectionTimeout,
 }
