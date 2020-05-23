@@ -1,5 +1,5 @@
 use crate::configuration::Configuration;
-use crate::node::Node;
+use crate::node::BaseNode;
 use crate::pb::raft_server::RaftServer;
 use crate::peer::grpc::GRPCPeer;
 use crate::service::RaftService;
@@ -21,7 +21,7 @@ impl GRPCRaftGroup {
     }
 
     pub async fn run(self) -> Result<(), Box<dyn error::Error>> {
-        let node = Node::new(self.id, self.conf);
+        let node = BaseNode::new(self.id, self.conf);
 
         // start server
         let addr = self.addrs.get(&self.id).unwrap().parse()?;

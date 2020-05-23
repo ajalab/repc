@@ -1,7 +1,8 @@
-use crate::configuration::Configuration;
+use crate::configuration::{Configuration, LeaderConfiguration};
 use crate::log::Log;
 use crate::pb;
 use crate::peer::Peer;
+use crate::state::State;
 use crate::types::{LogIndex, NodeId, Term};
 use futures::future::try_join_all;
 use log::{debug, info, warn};
@@ -21,28 +22,26 @@ pub struct Leader {
 }
 
 impl Leader {
-    pub fn spawn<P: Peer + Send + Sync + Clone + 'static>(
-        id: NodeId,
-        term: Term,
-        conf: Arc<Configuration>,
-        log: Arc<RwLock<Log>>,
-        peers: &HashMap<NodeId, P>,
-    ) -> Self {
-        let appenders = peers
+    pub fn spawn<P: Peer + Send + Sync + Clone + 'static>(state: State<P>) -> Self {
+        let id = state.id();
+        let term = state.term();
+        let conf = state.conf();
+        let leader_conf = Arc::new(conf.leader);
+        let appenders = state
+            .peers()
             .iter()
             .map(|(&target_id, peer)| {
                 debug!("spawn a new appender<{}>", target_id);
-                Appender::spawn(id, term, conf.clone(), target_id, peer.clone(), log.clone())
+                Appender::spawn(id, term, leader_conf.clone(), target_id, peer.clone())
             })
             .collect::<Vec<_>>();
 
         let (tx, rx) = mpsc::channel::<NotifyAppendToLeader>(LEADER_PEER_BUFFER_SIZE);
         let leader = Leader { tx };
         let process = LeaderProcess {
-            log,
             rx,
             appenders,
-            conf: conf,
+            conf: leader_conf,
         };
 
         tokio::spawn(process.run());
@@ -52,8 +51,8 @@ impl Leader {
 }
 
 struct LeaderProcess {
-    log: Arc<RwLock<Log>>,
-    conf: Arc<Configuration>,
+    // log: Arc<RwLock<Log>>,
+    conf: Arc<LeaderConfiguration>,
     rx: mpsc::Receiver<NotifyAppendToLeader>,
     appenders: Vec<Appender>,
 }
@@ -83,14 +82,13 @@ impl Appender {
     fn spawn<P: Peer + Send + Sync + 'static>(
         id: NodeId,
         term: Term,
-        conf: Arc<Configuration>,
+        conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         peer: P,
-        log: Arc<RwLock<Log>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<NotifyAppendToAppender>(APPENDER_CHANNEL_BUFFER_SIZE);
         let mut appender = Appender { target_id, tx };
-        let process = AppenderProcess::new(id, term, conf, target_id, peer, rx, log);
+        let process = AppenderProcess::new(id, term, conf, target_id, peer, rx);
 
         // Notify to appender beforehand to send heartbeat immediately
         if let Err(e) = appender.try_notify() {
@@ -114,15 +112,14 @@ impl Appender {
 struct AppenderProcess<P: Peer> {
     id: NodeId,
     term: Term,
-    conf: Arc<Configuration>,
+    conf: Arc<LeaderConfiguration>,
     target_id: NodeId,
     peer: P,
     rx: mpsc::Receiver<NotifyAppendToAppender>,
 
     next_index: LogIndex,
     match_index: LogIndex,
-
-    log: Arc<RwLock<Log>>,
+    // log: Arc<RwLock<Log>>,
 }
 
 const WAIT_APPEND_ENTRIES_RES_TIMEOUT_MILLIS: u64 = 500;
@@ -131,11 +128,10 @@ impl<P: Peer> AppenderProcess<P> {
     fn new(
         id: NodeId,
         term: Term,
-        conf: Arc<Configuration>,
+        conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         peer: P,
         rx: mpsc::Receiver<NotifyAppendToAppender>,
-        log: Arc<RwLock<Log>>,
     ) -> Self {
         AppenderProcess {
             id,
@@ -146,8 +142,6 @@ impl<P: Peer> AppenderProcess<P> {
             rx,
             next_index: 0,
             match_index: 0,
-
-            log,
         }
     }
 
@@ -155,8 +149,9 @@ impl<P: Peer> AppenderProcess<P> {
         info!("start appender process: target_id={}", self.target_id);
 
         self.next_index = {
-            let log = self.log.read().await;
-            log.last_index() + 1
+            // let log = self.log.read().await;
+            // log.last_index() + 1
+            1
         };
         self.match_index = 0;
 
@@ -166,7 +161,7 @@ impl<P: Peer> AppenderProcess<P> {
                 self.id, self.term,
             );
             let wait = time::timeout(
-                Duration::from_millis(self.conf.leader.heartbeat_timeout_millis),
+                Duration::from_millis(self.conf.heartbeat_timeout_millis),
                 self.rx.recv(),
             )
             .await;
@@ -181,7 +176,7 @@ impl<P: Peer> AppenderProcess<P> {
                 break;
             }
 
-            let log = self.log.read().await;
+            let log = Log::default(); // self.log.read().await;
 
             let prev_log_index = self.next_index - 1;
             let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);

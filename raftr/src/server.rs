@@ -1,4 +1,3 @@
-use crate::app;
 use crate::message::Message;
 use bytes::buf::Buf;
 use futures::{FutureExt, TryFutureExt};
@@ -6,11 +5,10 @@ use futures_util::TryStreamExt;
 use http::request::Request;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
 use tonic::body::BoxBody;
-use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder, Streaming};
+use tonic::codec::{DecodeBuf, Decoder, Streaming};
 use tonic::transport::Body;
 use tonic::Status;
 use tower_service::Service;

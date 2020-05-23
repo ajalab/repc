@@ -1,9 +1,10 @@
-use crate::candidate;
 use crate::configuration::Configuration;
-use crate::follower;
-use crate::leader;
 use crate::log::{Log, LogEntry};
 use crate::message::Message;
+use crate::node::candidate;
+use crate::node::follower;
+use crate::node::leader;
+use crate::node::Node;
 use crate::pb;
 use crate::peer::Peer;
 use crate::state::State;
@@ -16,32 +17,31 @@ use std::error;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-pub struct Node<P: Peer + Clone + Send + Sync + 'static> {
+pub struct BaseNode<P: Peer + Clone + Send + Sync + 'static> {
     id: NodeId,
-    conf: Arc<Configuration>,
 
     // TODO: make these persistent
     term: Term,
     voted_for: Option<NodeId>,
     log: Arc<RwLock<Log>>,
 
-    state: State,
+    node: Node<P>,
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
     peers: HashMap<NodeId, P>,
 }
 
-impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
+impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
     pub fn new(id: NodeId, conf: Configuration) -> Self {
         let (tx, rx) = mpsc::channel(100);
-        Node {
+        let state = State::new(id, conf);
+        BaseNode {
             id,
-            conf: Arc::new(conf),
             term: 1,
             voted_for: None,
             log: Arc::default(),
-            state: State::new(),
+            node: Node::new(state),
             tx,
             rx,
             peers: HashMap::new(),
@@ -82,7 +82,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
             );
             self.term = req_term;
             self.voted_for = None;
-            if self.state.to_ident() != State::FOLLOWER {
+            if let Node::Follower { .. } = self.node {
                 self.trans_state_follower();
             }
         }
@@ -153,7 +153,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
         res: pb::RequestVoteResponse,
         id: NodeId,
     ) -> Result<(), Box<dyn error::Error + Send>> {
-        if let State::Candidate { ref mut votes, .. } = self.state {
+        if let Node::Candidate { ref mut votes, .. } = self.node {
             if self.term != res.term {
                 debug!(
                     "id={}, term={}, message=\"ignored vote from {}, which belongs to the different term: {}\"",
@@ -248,7 +248,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
 
         self.send_append_entries_response(tx, true);
 
-        if let State::Follower { ref mut follower } = self.state {
+        if let Node::Follower { ref mut follower } = self.node {
             if let Err(e) = follower.reset_deadline().await {
                 warn!("failed to reset deadline: {}", e);
             };
@@ -313,7 +313,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
         command: Bytes,
         tx: mpsc::Sender<Result<(), tonic::Status>>,
     ) -> Result<(), Box<dyn error::Error + Send>> {
-        if let State::Leader { ref leader } = self.state {}
+        if let Node::Leader { ref leader } = self.node {}
         Ok(())
     }
 
@@ -322,12 +322,12 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
             "id={}, term={}, state={}, message=\"{}\"",
             self.id,
             self.term,
-            self.state.to_ident(),
+            self.node.to_ident(),
             "become a follower."
         );
 
-        self.state = State::Follower {
-            follower: follower::Follower::spawn(self.id, self.term, self.tx.clone(), &self.conf),
+        self.node = Node::Follower {
+            follower: follower::Follower::spawn(self.node.into_state(), self.tx.clone()),
         };
     }
 
@@ -336,15 +336,15 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
             "id={}, term={}, state={}, message=\"{}\"",
             self.id,
             self.term,
-            self.state.to_ident(),
+            self.node.to_ident(),
             "become a candidate."
         );
 
         let mut votes = HashSet::new();
         votes.insert(self.id);
 
-        self.state = State::Candidate {
-            candidate: candidate::Candidate::spawn(self.id, self.term, self.tx.clone(), &self.conf),
+        self.node = Node::Candidate {
+            candidate: candidate::Candidate::spawn(*self.node.state_mut(), self.tx.clone()),
             votes,
         };
         self.voted_for = Some(self.id);
@@ -355,18 +355,12 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
             "id={}, term={}, state={}, message=\"{}\"",
             self.id,
             self.term,
-            self.state.to_ident(),
+            self.node.to_ident(),
             "become a leader."
         );
 
-        self.state = State::Leader {
-            leader: leader::Leader::spawn(
-                self.id,
-                self.term,
-                self.conf.clone(),
-                self.log.clone(),
-                &self.peers,
-            ),
+        self.node = Node::Leader {
+            leader: leader::Leader::spawn(self.node.into_state()),
         };
     }
 
@@ -374,7 +368,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
         mut self,
         peers: HashMap<NodeId, P>,
     ) -> Result<(), Box<dyn error::Error + Send>> {
-        self.peers = peers;
+        *self.node.state_mut().peers_mut() = peers;
 
         self.trans_state_follower();
 

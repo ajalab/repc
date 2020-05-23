@@ -1,5 +1,5 @@
 use crate::configuration::Configuration;
-use crate::node::Node;
+use crate::node::BaseNode;
 use crate::peer::error::PeerError;
 use crate::peer::partitioned::{self, PartitionedPeer, PartitionedPeerController};
 use crate::peer::service::ServicePeer;
@@ -18,11 +18,11 @@ impl PartitionedLocalRaftGroup {
     }
 
     pub fn spawn(self) -> PartitionedLocalRaftGroupController<impl Peer> {
-        let nodes: Vec<Node<PartitionedPeer>> = self
+        let nodes: Vec<BaseNode<PartitionedPeer>> = self
             .confs
             .into_iter()
             .enumerate()
-            .map(|(i, conf)| Node::new(i as NodeId + 1, conf))
+            .map(|(i, conf)| BaseNode::new(i as NodeId + 1, conf))
             .collect();
         let services: Vec<RaftService> = nodes
             .iter()
