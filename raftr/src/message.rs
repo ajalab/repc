@@ -3,14 +3,14 @@ use crate::pb::{
 };
 use crate::types::NodeId;
 use bytes::Bytes;
-use std::sync::Arc;
+use std::error;
 use tokio::sync::mpsc;
 use tonic::Status;
 
 pub enum Message {
     RPCRequestVoteRequest {
         req: RequestVoteRequest,
-        tx: mpsc::Sender<RequestVoteResponse>,
+        tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
     },
 
     RPCRequestVoteResponse {
@@ -20,7 +20,7 @@ pub enum Message {
 
     RPCAppendEntriesRequest {
         req: AppendEntriesRequest,
-        tx: mpsc::Sender<AppendEntriesResponse>,
+        tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
     },
 
     RPCAppendEntriesResponse {

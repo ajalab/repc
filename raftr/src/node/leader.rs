@@ -1,11 +1,11 @@
-use crate::configuration::{Configuration, LeaderConfiguration};
+use crate::configuration::Configuration;
+use crate::configuration::LeaderConfiguration;
 use crate::log::Log;
 use crate::pb;
 use crate::peer::Peer;
-use crate::state::State;
 use crate::types::{LogIndex, NodeId, Term};
 use futures::future::try_join_all;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,16 +19,19 @@ struct NotifyAppendToLeader;
 
 pub struct Leader {
     tx: mpsc::Sender<NotifyAppendToLeader>,
+    log: Arc<Log>,
 }
 
 impl Leader {
-    pub fn spawn<P: Peer + Send + Sync + Clone + 'static>(state: State<P>) -> Self {
-        let id = state.id();
-        let term = state.term();
-        let conf = state.conf();
-        let leader_conf = Arc::new(conf.leader);
-        let appenders = state
-            .peers()
+    pub fn spawn<P: Peer + Send + Sync + Clone + 'static>(
+        id: NodeId,
+        conf: Arc<Configuration>,
+        term: Term,
+        log: Arc<Log>,
+        peers: &HashMap<NodeId, P>,
+    ) -> Self {
+        let leader_conf = Arc::new(conf.leader.clone());
+        let appenders = peers
             .iter()
             .map(|(&target_id, peer)| {
                 debug!("spawn a new appender<{}>", target_id);
@@ -37,7 +40,7 @@ impl Leader {
             .collect::<Vec<_>>();
 
         let (tx, rx) = mpsc::channel::<NotifyAppendToLeader>(LEADER_PEER_BUFFER_SIZE);
-        let leader = Leader { tx };
+        let leader = Leader { tx, log };
         let process = LeaderProcess {
             rx,
             appenders,
@@ -67,7 +70,7 @@ impl LeaderProcess {
                 warn!("error: {}", e);
             }
         }
-        info!("leader process is terminated");
+        debug!("leader process is terminated");
     }
 }
 
@@ -146,7 +149,7 @@ impl<P: Peer> AppenderProcess<P> {
     }
 
     async fn run(mut self) {
-        info!("start appender process: target_id={}", self.target_id);
+        debug!("start appender process: target_id={}", self.target_id);
 
         self.next_index = {
             // let log = self.log.read().await;

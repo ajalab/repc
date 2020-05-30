@@ -37,10 +37,15 @@ impl Raft for RaftService {
 
         rx.recv()
             .await
-            .ok_or_else(|| {
-                Status::internal("couldn't get a response (maybe the node is going to shut down)")
+            .map(|res| {
+                res.map(Response::new)
+                    .map_err(|e| Status::internal(e.to_string()))
             })
-            .map(Response::new)
+            .unwrap_or_else(|| {
+                Err(Status::internal(
+                    "couldn't get a response (maybe the node is going to shut down)",
+                ))
+            })
     }
 
     async fn append_entries(
@@ -60,9 +65,14 @@ impl Raft for RaftService {
 
         rx.recv()
             .await
-            .ok_or_else(|| {
-                Status::internal("couldn't get a response (maybe the node is going to shut down")
+            .map(|res| {
+                res.map(Response::new)
+                    .map_err(|e| Status::internal(e.to_string()))
             })
-            .map(Response::new)
+            .unwrap_or_else(|| {
+                Err(Status::internal(
+                    "couldn't get a response (maybe the node is going to shut down)",
+                ))
+            })
     }
 }

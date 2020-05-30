@@ -1,4 +1,3 @@
-mod app;
 pub mod configuration;
 mod deadline_clock;
 pub mod group;
