@@ -78,7 +78,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
             );
             self.term = req_term;
             self.voted_for = None;
-            if let Node::Follower { .. } = self.node {
+            if !matches!(self.node, Node::Follower { .. }) {
                 self.trans_state_follower();
             }
         }
