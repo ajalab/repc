@@ -11,8 +11,6 @@ use crate::peer::Peer;
 use crate::types::NodeId;
 use std::collections::HashMap;
 use std::error;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 pub enum Node {
     Stopped,
@@ -40,12 +38,12 @@ impl Node {
         }
     }
 
-    pub fn log(&self) -> Arc<RwLock<Log>> {
+    pub fn extract_log(&mut self) -> Log {
         match self {
-            Node::Stopped { .. } => Arc::default(),
-            Node::Follower { follower } => follower.log(),
-            Node::Candidate { candidate } => candidate.log(),
-            _ => unimplemented!(),
+            Node::Stopped { .. } => Log::default(),
+            Node::Follower { follower } => follower.extract_log(),
+            Node::Candidate { candidate } => candidate.extract_log(),
+            Node::Leader { leader } => leader.extract_log(),
         }
     }
 

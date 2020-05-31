@@ -11,7 +11,6 @@ use std::error;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
 
 #[derive(Debug)]
 pub struct ReferenceError;
@@ -29,7 +28,7 @@ pub struct Follower {
     term: Term,
     deadline_clock: DeadlineClock,
     voted_for: Option<NodeId>,
-    log: Arc<RwLock<Log>>,
+    log: Option<Log>,
 }
 
 impl Follower {
@@ -37,7 +36,7 @@ impl Follower {
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
-        log: Arc<RwLock<Log>>,
+        log: Log,
         mut tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
@@ -62,7 +61,7 @@ impl Follower {
             term,
             voted_for: None,
             deadline_clock,
-            log,
+            log: Some(log),
         }
     }
 
@@ -83,7 +82,7 @@ impl Follower {
         };
 
         let vote_granted = valid_term && valid_candidate && {
-            let log = self.log.read().await;
+            let log = self.log.as_ref().unwrap();
             let last_term = log.last_term();
             let last_index = log.last_index();
             (req.last_log_term, req.last_log_index) >= (last_term, last_index)
@@ -139,7 +138,7 @@ impl Follower {
         // invariant:
         //   req.term == self.term
 
-        let mut log = self.log.write().await;
+        let log = self.log.as_mut().unwrap();
         if req.prev_log_index > 0 {
             let prev_log_entry = log.get(req.prev_log_index);
             let prev_log_term = prev_log_entry.map(|e| e.term());
@@ -181,8 +180,6 @@ impl Follower {
         let last_committed_index = log.last_committed();
         log.commit(cmp::min(req.last_committed_index, last_committed_index));
 
-        drop(log);
-
         if let Err(e) = self.reset_deadline().await {
             warn!("failed to reset deadline: {}", e);
         };
@@ -193,7 +190,7 @@ impl Follower {
         })
     }
 
-    pub fn log(&self) -> Arc<RwLock<Log>> {
-        self.log.clone()
+    pub fn extract_log(&mut self) -> Log {
+        self.log.take().unwrap()
     }
 }

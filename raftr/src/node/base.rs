@@ -20,7 +20,6 @@ pub struct BaseNode<P: Peer + Clone + Send + Sync + 'static> {
 
     // TODO: make these persistent
     term: Term,
-    voted_for: Option<NodeId>,
 
     node: Node,
 
@@ -36,7 +35,6 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
             id,
             conf: Arc::new(conf),
             term: 1,
-            voted_for: None,
             node: Node::new(),
             tx,
             rx,
@@ -77,10 +75,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
                 self.id, self.term, req_id, req_term,
             );
             self.term = req_term;
-            self.voted_for = None;
-            if !matches!(self.node, Node::Follower { .. }) {
-                self.trans_state_follower();
-            }
+            self.trans_state_follower();
         }
     }
 
@@ -155,7 +150,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
                 self.id,
                 self.conf.clone(),
                 self.term,
-                self.node.log(),
+                self.node.extract_log(),
                 self.tx.clone(),
             ),
         };
@@ -177,11 +172,10 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
                 self.conf.clone(),
                 self.term,
                 quorum,
-                self.node.log(),
+                self.node.extract_log(),
                 self.tx.clone(),
             ),
         };
-        self.voted_for = Some(self.id);
     }
 
     fn trans_state_leader(&mut self) {
@@ -198,7 +192,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
                 self.id,
                 self.conf.clone(),
                 self.term,
-                self.node.log(),
+                self.node.extract_log(),
                 &self.peers,
             ),
         };

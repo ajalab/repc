@@ -10,14 +10,13 @@ use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
 
 pub struct Candidate {
     id: NodeId,
     term: Term,
     votes: HashSet<NodeId>,
     quorum: usize,
-    log: Arc<RwLock<Log>>,
+    log: Option<Log>,
     tx: mpsc::Sender<Message>,
     _deadline_clock: DeadlineClock,
 }
@@ -28,7 +27,7 @@ impl Candidate {
         conf: Arc<Configuration>,
         term: Term,
         quorum: usize,
-        log: Arc<RwLock<Log>>,
+        log: Log,
         tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
@@ -58,7 +57,7 @@ impl Candidate {
             term,
             votes,
             quorum,
-            log,
+            log: Some(log),
             tx,
             _deadline_clock: deadline_clock,
         }
@@ -112,7 +111,7 @@ impl Candidate {
         &mut self,
         peers: &HashMap<NodeId, P>,
     ) {
-        let log = self.log.read().await;
+        let log = self.log.as_ref().unwrap();
         let last_log_term = log.last_term();
         let last_log_index = log.last_index();
         for (&id, peer) in peers.iter() {
@@ -149,7 +148,7 @@ impl Candidate {
         }
     }
 
-    pub fn log(&self) -> Arc<RwLock<Log>> {
-        self.log.clone()
+    pub fn extract_log(&mut self) -> Log {
+        self.log.take().unwrap()
     }
 }

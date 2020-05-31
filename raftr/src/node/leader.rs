@@ -7,7 +7,7 @@ use crate::types::{LogIndex, NodeId, Term};
 use futures::future::try_join_all;
 use log::{debug, warn};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time;
@@ -19,7 +19,7 @@ struct NotifyAppendToLeader;
 
 pub struct Leader {
     tx: mpsc::Sender<NotifyAppendToLeader>,
-    log: Arc<RwLock<Log>>,
+    log: Option<Arc<RwLock<Log>>>,
 }
 
 impl Leader {
@@ -27,10 +27,11 @@ impl Leader {
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
-        log: Arc<RwLock<Log>>,
+        log: Log,
         peers: &HashMap<NodeId, P>,
     ) -> Self {
         let leader_conf = Arc::new(conf.leader.clone());
+        let log = Arc::new(RwLock::new(log));
         let appenders = peers
             .iter()
             .map(|(&target_id, peer)| {
@@ -40,14 +41,14 @@ impl Leader {
                     term,
                     leader_conf.clone(),
                     target_id,
-                    log.clone(),
+                    Arc::downgrade(&log),
                     peer.clone(),
                 )
             })
             .collect::<Vec<_>>();
 
         let (tx, rx) = mpsc::channel::<NotifyAppendToLeader>(LEADER_PEER_BUFFER_SIZE);
-        let leader = Leader { tx, log };
+        let leader = Leader { tx, log: Some(log) };
         let process = LeaderProcess {
             rx,
             appenders,
@@ -57,6 +58,13 @@ impl Leader {
         tokio::spawn(process.run());
 
         leader
+    }
+
+    pub fn extract_log(&mut self) -> Log {
+        Arc::try_unwrap(self.log.take().unwrap())
+            .ok()
+            .expect("should have")
+            .into_inner()
     }
 }
 
@@ -94,7 +102,7 @@ impl Appender {
         term: Term,
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
-        log: Arc<RwLock<Log>>,
+        log: Weak<RwLock<Log>>,
         peer: P,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<NotifyAppendToAppender>(APPENDER_CHANNEL_BUFFER_SIZE);
@@ -127,7 +135,7 @@ struct AppenderProcess<P: Peer> {
     target_id: NodeId,
     peer: P,
     rx: mpsc::Receiver<NotifyAppendToAppender>,
-    log: Arc<RwLock<Log>>,
+    log: Weak<RwLock<Log>>,
 
     next_index: LogIndex,
     match_index: LogIndex,
@@ -142,7 +150,7 @@ impl<P: Peer> AppenderProcess<P> {
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         peer: P,
-        log: Arc<RwLock<Log>>,
+        log: Weak<RwLock<Log>>,
         rx: mpsc::Receiver<NotifyAppendToAppender>,
     ) -> Self {
         AppenderProcess {
@@ -189,7 +197,15 @@ impl<P: Peer> AppenderProcess<P> {
                 break;
             }
 
-            let log = self.log.read().await;
+            let log = match self.log.upgrade() {
+                Some(log) => log,
+                None => {
+                    debug!("old");
+                    break;
+                }
+            };
+
+            let log = log.read().await;
 
             let prev_log_index = self.next_index - 1;
             let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
