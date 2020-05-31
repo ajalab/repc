@@ -1,13 +1,15 @@
 use crate::types::{LogIndex, Term};
+use bytes::{Buf, Bytes};
 
 #[derive(Default)]
-pub struct LogEntry {
+pub struct LogEntry<T> {
     term: Term,
+    command: T,
 }
 
-impl LogEntry {
-    pub fn new(term: Term) -> Self {
-        LogEntry { term }
+impl<T> LogEntry<T> {
+    pub fn new(term: Term, command: T) -> Self {
+        LogEntry { term, command }
     }
 
     pub fn term(&self) -> Term {
@@ -16,14 +18,14 @@ impl LogEntry {
 }
 
 #[derive(Default)]
-pub struct Log {
-    entries: Vec<LogEntry>,
+pub struct Log<T = Bytes> {
+    entries: Vec<LogEntry<T>>,
     last_applied: LogIndex,
     last_committed: LogIndex,
 }
 
-impl Log {
-    pub fn get(&self, i: LogIndex) -> Option<&LogEntry> {
+impl<T: Buf> Log<T> {
+    pub fn get(&self, i: LogIndex) -> Option<&LogEntry<T>> {
         if 0 < i && i <= self.last_index() {
             Some(&self.entries[i as usize - 1])
         } else {
@@ -32,7 +34,7 @@ impl Log {
     }
 
     // Append log entries
-    pub fn append(&mut self, entries: impl Iterator<Item = LogEntry>) {
+    pub fn append(&mut self, entries: impl Iterator<Item = LogEntry<T>>) {
         self.entries.extend(entries);
     }
 

@@ -12,6 +12,7 @@ use crate::types::NodeId;
 use std::collections::HashMap;
 use std::error;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub enum Node {
     Stopped,
@@ -39,9 +40,9 @@ impl Node {
         }
     }
 
-    pub fn log(&self) -> Arc<Log> {
+    pub fn log(&self) -> Arc<RwLock<Log>> {
         match self {
-            Node::Stopped { .. } => Arc::new(Log::default()),
+            Node::Stopped { .. } => Arc::default(),
             Node::Follower { follower } => follower.log(),
             Node::Candidate { candidate } => candidate.log(),
             _ => unimplemented!(),

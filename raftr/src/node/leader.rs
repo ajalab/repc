@@ -19,7 +19,7 @@ struct NotifyAppendToLeader;
 
 pub struct Leader {
     tx: mpsc::Sender<NotifyAppendToLeader>,
-    log: Arc<Log>,
+    log: Arc<RwLock<Log>>,
 }
 
 impl Leader {
@@ -27,7 +27,7 @@ impl Leader {
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
-        log: Arc<Log>,
+        log: Arc<RwLock<Log>>,
         peers: &HashMap<NodeId, P>,
     ) -> Self {
         let leader_conf = Arc::new(conf.leader.clone());
@@ -35,7 +35,14 @@ impl Leader {
             .iter()
             .map(|(&target_id, peer)| {
                 debug!("spawn a new appender<{}>", target_id);
-                Appender::spawn(id, term, leader_conf.clone(), target_id, peer.clone())
+                Appender::spawn(
+                    id,
+                    term,
+                    leader_conf.clone(),
+                    target_id,
+                    log.clone(),
+                    peer.clone(),
+                )
             })
             .collect::<Vec<_>>();
 
@@ -87,11 +94,12 @@ impl Appender {
         term: Term,
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
+        log: Arc<RwLock<Log>>,
         peer: P,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<NotifyAppendToAppender>(APPENDER_CHANNEL_BUFFER_SIZE);
         let mut appender = Appender { target_id, tx };
-        let process = AppenderProcess::new(id, term, conf, target_id, peer, rx);
+        let process = AppenderProcess::new(id, term, conf, target_id, peer, log, rx);
 
         // Notify to appender beforehand to send heartbeat immediately
         if let Err(e) = appender.try_notify() {
@@ -119,10 +127,10 @@ struct AppenderProcess<P: Peer> {
     target_id: NodeId,
     peer: P,
     rx: mpsc::Receiver<NotifyAppendToAppender>,
+    log: Arc<RwLock<Log>>,
 
     next_index: LogIndex,
     match_index: LogIndex,
-    // log: Arc<RwLock<Log>>,
 }
 
 const WAIT_APPEND_ENTRIES_RES_TIMEOUT_MILLIS: u64 = 500;
@@ -134,6 +142,7 @@ impl<P: Peer> AppenderProcess<P> {
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         peer: P,
+        log: Arc<RwLock<Log>>,
         rx: mpsc::Receiver<NotifyAppendToAppender>,
     ) -> Self {
         AppenderProcess {
@@ -143,6 +152,7 @@ impl<P: Peer> AppenderProcess<P> {
             target_id,
             peer,
             rx,
+            log,
             next_index: 0,
             match_index: 0,
         }
@@ -179,7 +189,7 @@ impl<P: Peer> AppenderProcess<P> {
                 break;
             }
 
-            let log = Log::default(); // self.log.read().await;
+            let log = self.log.read().await;
 
             let prev_log_index = self.next_index - 1;
             let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
