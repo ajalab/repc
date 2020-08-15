@@ -3,7 +3,7 @@ use crate::configuration::Configuration;
 use crate::configuration::LeaderConfiguration;
 use crate::raft::log::{Log, LogEntry};
 use crate::raft::pb;
-use crate::raft::peer::Peer;
+use crate::raft::peer::RaftPeer;
 use crate::state_machine::StateMachineManager;
 use crate::types::{LogIndex, NodeId, Term};
 use bytes::Bytes;
@@ -27,7 +27,7 @@ pub struct Leader {
 }
 
 impl Leader {
-    pub fn spawn<P: Peer + Send + Sync + Clone + 'static>(
+    pub fn spawn<P: RaftPeer + Send + Sync + Clone + 'static>(
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
@@ -102,7 +102,7 @@ struct Appender {
 const APPENDER_CHANNEL_BUFFER_SIZE: usize = 10;
 
 impl Appender {
-    fn spawn<P: Peer + Send + Sync + 'static>(
+    fn spawn<P: RaftPeer + Send + Sync + 'static>(
         id: NodeId,
         term: Term,
         conf: Arc<LeaderConfiguration>,
@@ -138,7 +138,7 @@ impl Appender {
     }
 }
 
-struct AppenderProcess<P: Peer> {
+struct AppenderProcess<P: RaftPeer> {
     id: NodeId,
     term: Term,
     conf: Arc<LeaderConfiguration>,
@@ -149,7 +149,7 @@ struct AppenderProcess<P: Peer> {
     log: Weak<RwLock<Log>>,
 }
 
-impl<P: Peer> AppenderProcess<P> {
+impl<P: RaftPeer> AppenderProcess<P> {
     async fn run(mut self) {
         debug!("start appender process: target_id={}", self.target_id);
 

@@ -3,7 +3,7 @@ use crate::raft::deadline_clock::DeadlineClock;
 use crate::raft::log::Log;
 use crate::raft::message::Message;
 use crate::raft::pb;
-use crate::raft::peer::Peer;
+use crate::raft::peer::RaftPeer;
 use crate::types::{NodeId, Term};
 use log::{debug, info, warn};
 use rand::Rng;
@@ -107,7 +107,7 @@ impl Candidate {
         return false;
     }
 
-    pub async fn handle_election_timeout<P: Peer + Send + Sync + Clone + 'static>(
+    pub async fn handle_election_timeout<P: RaftPeer + Send + Sync + Clone + 'static>(
         &mut self,
         peers: &HashMap<NodeId, P>,
     ) {

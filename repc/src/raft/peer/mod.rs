@@ -10,7 +10,7 @@ pub mod partitioned;
 pub mod service;
 
 #[tonic::async_trait]
-pub trait Peer {
+pub trait RaftPeer {
     async fn request_vote(
         &mut self,
         req: RequestVoteRequest,

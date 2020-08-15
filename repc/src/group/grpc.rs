@@ -1,7 +1,7 @@
 use crate::configuration::Configuration;
 use crate::raft::node::Node;
 use crate::raft::pb::raft_server::RaftServer;
-use crate::raft::peer::grpc::GrpcPeer;
+use crate::raft::peer::grpc::RaftGrpcPeer;
 use crate::raft::service::RaftService;
 use crate::service::RepcService;
 use crate::state_machine::{StateMachine, StateMachineManager};
@@ -60,14 +60,14 @@ where
             }
             ids.push(id);
             let addr = SocketAddr::new(conf.ip, conf.raft_port);
-            peer_futures.push(GrpcPeer::connect(addr.to_string()));
+            peer_futures.push(RaftGrpcPeer::connect(addr.to_string()));
         }
 
         let result = futures::future::try_join_all(peer_futures).await;
         let peers = result
             .map(|peers| ids.into_iter().zip(peers).collect::<Vec<_>>())?
             .into_iter()
-            .collect::<HashMap<NodeId, GrpcPeer>>();
+            .collect::<HashMap<NodeId, RaftGrpcPeer>>();
 
         node.peers(peers).run().await;
         Ok(())

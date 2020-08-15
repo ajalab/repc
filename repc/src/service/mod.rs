@@ -1,10 +1,10 @@
+mod error;
+
 use crate::raft::message::Message;
-use crate::raft::node::error::CommandError;
 use bytes::buf::Buf;
 use bytes::Bytes;
+use error::RepcServiceError;
 use futures_util::{TryFutureExt, TryStreamExt};
-use std::error;
-use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -14,54 +14,6 @@ use tonic::codec::{DecodeBuf, Decoder, Streaming};
 use tonic::transport::{Body, NamedService};
 use tonic::Status;
 use tower_service::Service;
-
-#[derive(Debug)]
-pub enum RepcServiceError {
-    NodeTerminated,
-    NodeCrashed,
-    CommandInvalid(Status),
-    CommandMissing,
-    CommandFailed(CommandError),
-}
-
-impl RepcServiceError {
-    fn description(&self) -> &'static str {
-        use RepcServiceError::*;
-        match self {
-            NodeTerminated => "command could not be handled because the node has been terminated",
-            NodeCrashed => "node failed to handle the command during its process",
-            CommandInvalid(_) => "failed to decode the command",
-            CommandMissing => "command is missing in the request",
-            CommandFailed(_) => "failed to process command",
-        }
-    }
-
-    fn into_status(self) -> Status {
-        use RepcServiceError::*;
-        match self {
-            CommandInvalid(status) => status,
-            _ => Status::internal(self.to_string()),
-        }
-    }
-
-    fn into_http(self) -> http::Response<BoxBody> {
-        self.into_status().to_http()
-    }
-}
-
-impl fmt::Display for RepcServiceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use RepcServiceError::*;
-        write!(f, "{}", self.description())?;
-        match self {
-            CommandInvalid(s) => write!(f, ": {}", s),
-            CommandFailed(e) => write!(f, ": {}", e),
-            _ => Ok(()),
-        }
-    }
-}
-
-impl error::Error for RepcServiceError {}
 
 #[derive(Clone)]
 struct RepcInnerService {

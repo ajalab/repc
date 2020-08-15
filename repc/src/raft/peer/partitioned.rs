@@ -1,18 +1,18 @@
 use super::error::PeerError;
-use super::Peer;
+use super::RaftPeer;
 use crate::raft::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use log::debug;
 use tokio::sync::mpsc;
 
-pub fn peer<P: Peer + Send + Sync>(
+pub fn peer<P: RaftPeer + Send + Sync>(
     inner: P,
     queue_size: usize,
-) -> (PartitionedPeer, PartitionedPeerController<P>) {
+) -> (RaftPartitionedPeer, RaftPartitionedPeerController<P>) {
     let (tx, rx) = mpsc::channel(queue_size);
-    let peer = PartitionedPeer { tx: tx.clone() };
-    let controller = PartitionedPeerController { inner, tx, rx };
+    let peer = RaftPartitionedPeer { tx: tx.clone() };
+    let controller = RaftPartitionedPeerController { inner, tx, rx };
 
     (peer, controller)
 }
@@ -31,17 +31,17 @@ struct ReqItemWithCallback {
 }
 
 #[derive(Clone)]
-pub struct PartitionedPeer {
+pub struct RaftPartitionedPeer {
     tx: mpsc::Sender<ReqItemWithCallback>,
 }
 
-pub struct PartitionedPeerController<P: Peer + Send + Sync> {
+pub struct RaftPartitionedPeerController<P: RaftPeer + Send + Sync> {
     inner: P,
     tx: mpsc::Sender<ReqItemWithCallback>,
     rx: mpsc::Receiver<ReqItemWithCallback>,
 }
 
-impl<P: Peer + Send + Sync> PartitionedPeerController<P> {
+impl<P: RaftPeer + Send + Sync> RaftPartitionedPeerController<P> {
     pub async fn pass(&mut self) -> Result<ReqItem, PeerError> {
         let ReqItemWithCallback { item, mut tx } = self.rx.recv().await.unwrap();
         debug!("pass item: {:?}", item);
@@ -86,7 +86,7 @@ impl<P: Peer + Send + Sync> PartitionedPeerController<P> {
 }
 
 #[tonic::async_trait]
-impl Peer for PartitionedPeer {
+impl RaftPeer for RaftPartitionedPeer {
     async fn request_vote(
         &mut self,
         req: RequestVoteRequest,

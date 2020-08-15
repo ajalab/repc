@@ -7,7 +7,7 @@ use crate::configuration::Configuration;
 use crate::raft::log::Log;
 use crate::raft::message::Message;
 use crate::raft::pb;
-use crate::raft::peer::Peer;
+use crate::raft::peer::RaftPeer;
 use crate::state_machine::StateMachineManager;
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
@@ -26,7 +26,7 @@ pub struct Node<P> {
     rx: mpsc::Receiver<Message>,
 }
 
-impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
+impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
     pub fn new(id: NodeId, sm_manager: StateMachineManager) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
@@ -80,7 +80,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
     }
 }
 
-struct BaseNodeProcess<P: Peer + Clone + Send + Sync + 'static> {
+struct BaseNodeProcess<P: RaftPeer + Clone + Send + Sync + 'static> {
     id: NodeId,
     conf: Arc<Configuration>,
 
@@ -95,7 +95,7 @@ struct BaseNodeProcess<P: Peer + Clone + Send + Sync + 'static> {
     peers: HashMap<NodeId, P>,
 }
 
-impl<P: Peer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
+impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
     async fn handle_messages(&mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {

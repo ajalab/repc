@@ -1,5 +1,5 @@
 use super::error::PeerError;
-use super::Peer;
+use super::RaftPeer;
 use crate::raft::pb::{
     raft_server::Raft, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
@@ -7,18 +7,18 @@ use crate::raft::pb::{
 use tonic::Request;
 
 #[derive(Clone)]
-pub struct ServicePeer<S: Raft> {
+pub struct RaftServicePeer<S: Raft> {
     service: S,
 }
 
-impl<S: Raft> ServicePeer<S> {
+impl<S: Raft> RaftServicePeer<S> {
     pub fn new(service: S) -> Self {
-        ServicePeer { service }
+        RaftServicePeer { service }
     }
 }
 
 #[tonic::async_trait]
-impl<S: Raft> Peer for ServicePeer<S> {
+impl<S: Raft> RaftPeer for RaftServicePeer<S> {
     async fn request_vote(
         &mut self,
         req: RequestVoteRequest,

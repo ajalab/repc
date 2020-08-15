@@ -1,9 +1,9 @@
 use crate::configuration::Configuration;
 use crate::raft::node::Node;
 use crate::raft::peer::error::PeerError;
-use crate::raft::peer::partitioned::{self, PartitionedPeer, PartitionedPeerController};
-use crate::raft::peer::service::ServicePeer;
-use crate::raft::peer::Peer;
+use crate::raft::peer::partitioned::{self, RaftPartitionedPeer, RaftPartitionedPeerController};
+use crate::raft::peer::service::RaftServicePeer;
+use crate::raft::peer::RaftPeer;
 use crate::raft::service::RaftService;
 use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
@@ -94,13 +94,13 @@ impl<S> PartitionedLocalRepcGroup<S>
 where
     S: StateMachine + Send + 'static,
 {
-    pub fn spawn(self) -> PartitionedLocalRaftGroupController<impl Peer> {
+    pub fn spawn(self) -> PartitionedLocalRaftGroupController<impl RaftPeer> {
         let sm_managers = self
             .state_machines
             .into_iter()
             .map(|state_machine| StateMachineManager::spawn(state_machine))
             .collect::<Vec<_>>();
-        let nodes: Vec<Node<PartitionedPeer>> = self
+        let nodes: Vec<Node<RaftPartitionedPeer>> = self
             .confs
             .into_iter()
             .zip(sm_managers.into_iter())
@@ -126,7 +126,7 @@ where
                 if i == j {
                     continue;
                 }
-                let inner = ServicePeer::new(service.clone());
+                let inner = RaftServicePeer::new(service.clone());
                 let (peer, controller) = partitioned::peer(inner, 10);
                 ps.insert(j as NodeId, peer);
                 cs.insert(j as NodeId, controller);
@@ -143,11 +143,11 @@ where
     }
 }
 
-pub struct PartitionedLocalRaftGroupController<P: Peer + Send + Sync> {
-    controllers: HashMap<NodeId, HashMap<NodeId, PartitionedPeerController<P>>>,
+pub struct PartitionedLocalRaftGroupController<P: RaftPeer + Send + Sync> {
+    controllers: HashMap<NodeId, HashMap<NodeId, RaftPartitionedPeerController<P>>>,
 }
 
-impl<P: Peer + Send + Sync> PartitionedLocalRaftGroupController<P> {
+impl<P: RaftPeer + Send + Sync> PartitionedLocalRaftGroupController<P> {
     pub async fn pass(&mut self, i: NodeId, j: NodeId) -> Result<partitioned::ReqItem, PeerError> {
         self.controllers
             .get_mut(&i)

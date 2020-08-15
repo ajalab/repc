@@ -4,7 +4,7 @@ use super::follower::Follower;
 use super::leader::Leader;
 use crate::raft::log::Log;
 use crate::raft::pb;
-use crate::raft::peer::Peer;
+use crate::raft::peer::RaftPeer;
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -73,7 +73,7 @@ impl State {
         }
     }
 
-    pub async fn handle_election_timeout<P: Peer + Send + Sync + Clone + 'static>(
+    pub async fn handle_election_timeout<P: RaftPeer + Send + Sync + Clone + 'static>(
         &mut self,
         peers: &HashMap<NodeId, P>,
     ) {
