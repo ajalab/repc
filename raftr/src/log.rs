@@ -7,13 +7,17 @@ pub struct LogEntry<T> {
     command: T,
 }
 
-impl<T> LogEntry<T> {
+impl<T: Clone> LogEntry<T> {
     pub fn new(term: Term, command: T) -> Self {
         LogEntry { term, command }
     }
 
     pub fn term(&self) -> Term {
         self.term
+    }
+
+    pub fn command(&self) -> T {
+        self.command.clone()
     }
 }
 
@@ -31,6 +35,11 @@ impl<T: Buf> Log<T> {
         } else {
             None
         }
+    }
+
+    // end is inclusive
+    pub fn get_range(&self, start: LogIndex, end: LogIndex) -> &[LogEntry<T>] {
+        &self.entries[(start as usize - 1)..(end as usize)]
     }
 
     // Append log entries

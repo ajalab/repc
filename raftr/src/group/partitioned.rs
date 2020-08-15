@@ -5,28 +5,110 @@ use crate::peer::partitioned::{self, PartitionedPeer, PartitionedPeerController}
 use crate::peer::service::ServicePeer;
 use crate::peer::Peer;
 use crate::service::RaftService;
+use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 
-pub struct PartitionedLocalRaftGroup {
+pub struct PartitionedLocalRaftGroupBuilder<T> {
     confs: Vec<Configuration>,
+    state_machines: T,
 }
 
-impl PartitionedLocalRaftGroup {
-    pub fn new(confs: Vec<Configuration>) -> Self {
-        PartitionedLocalRaftGroup { confs }
+impl PartitionedLocalRaftGroupBuilder<()> {
+    pub fn new() -> PartitionedLocalRaftGroupBuilder<()> {
+        Self {
+            confs: vec![],
+            state_machines: (),
+        }
+    }
+}
+
+impl<S> Default for PartitionedLocalRaftGroupBuilder<PhantomData<S>> {
+    fn default() -> Self {
+        Self {
+            state_machines: PhantomData,
+            confs: Default::default(),
+        }
+    }
+}
+
+impl<T> PartitionedLocalRaftGroupBuilder<T> {
+    pub fn state_machines(self, state_machines: T) -> Self {
+        Self {
+            state_machines,
+            ..self
+        }
     }
 
+    pub fn confs(self, confs: Vec<Configuration>) -> Self {
+        Self { confs, ..self }
+    }
+}
+
+impl<S> PartitionedLocalRaftGroupBuilder<PhantomData<S>>
+where
+    S: StateMachine + Send + Default + 'static,
+{
+    pub fn build(self) -> PartitionedLocalRaftGroup<S> {
+        let n = self.confs.len();
+        PartitionedLocalRaftGroup {
+            confs: self.confs,
+            state_machines: (0..n).map(|_| S::default()).collect(),
+        }
+    }
+}
+
+impl<S> PartitionedLocalRaftGroupBuilder<S>
+where
+    S: StateMachine + Send + Clone + 'static,
+{
+    pub fn build(self) -> PartitionedLocalRaftGroup<S> {
+        let n = self.confs.len();
+        PartitionedLocalRaftGroup {
+            confs: self.confs,
+            state_machines: vec![self.state_machines; n],
+        }
+    }
+}
+
+impl<S> PartitionedLocalRaftGroupBuilder<Vec<S>>
+where
+    S: StateMachine + Send + Clone + 'static,
+{
+    pub fn build(self) -> PartitionedLocalRaftGroup<S> {
+        debug_assert_eq!(self.confs.len(), self.state_machines.len());
+        PartitionedLocalRaftGroup {
+            confs: self.confs,
+            state_machines: self.state_machines,
+        }
+    }
+}
+pub struct PartitionedLocalRaftGroup<S> {
+    confs: Vec<Configuration>,
+    state_machines: Vec<S>,
+}
+
+impl<S> PartitionedLocalRaftGroup<S>
+where
+    S: StateMachine + Send + 'static,
+{
     pub fn spawn(self) -> PartitionedLocalRaftGroupController<impl Peer> {
+        let sm_managers = self
+            .state_machines
+            .into_iter()
+            .map(|state_machine| StateMachineManager::spawn(state_machine))
+            .collect::<Vec<_>>();
         let nodes: Vec<BaseNode<PartitionedPeer>> = self
             .confs
             .into_iter()
+            .zip(sm_managers.into_iter())
             .enumerate()
-            .map(|(i, conf)| BaseNode::new(i as NodeId + 1, conf))
+            .map(|(i, (conf, smm_sender))| BaseNode::new(i as NodeId + 1, smm_sender).conf(conf))
             .collect();
         let services: Vec<RaftService> = nodes
             .iter()
-            .map(|node| RaftService::new(node.tx()))
+            .map(|node| RaftService::new(node.get_tx()))
             .collect();
         let n = nodes.len() as NodeId;
 
@@ -51,7 +133,7 @@ impl PartitionedLocalRaftGroup {
         }
 
         for (node, peers) in nodes.into_iter().zip(peers.into_iter()) {
-            tokio::spawn(node.run(peers));
+            tokio::spawn(node.peers(peers).run());
         }
 
         PartitionedLocalRaftGroupController { controllers }
@@ -95,6 +177,14 @@ mod tests {
     use crate::configuration::*;
     use crate::pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
     use crate::peer::partitioned::ReqItem;
+    use bytes::Bytes;
+
+    #[derive(Default, Clone)]
+    struct NoopStateMachine {}
+
+    impl StateMachine for NoopStateMachine {
+        fn apply<P: AsRef<str>>(&mut self, path: P, command: Bytes) {}
+    }
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -106,6 +196,7 @@ mod tests {
         let forever = 1000 * 60 * 60 * 24 * 365;
         let conf1 = Configuration {
             leader: LeaderConfiguration {
+                wait_append_entries_response_timeout_millis: forever,
                 heartbeat_timeout_millis: forever,
             },
             follower: FollowerConfiguration {
@@ -127,7 +218,10 @@ mod tests {
         };
         let conf3 = conf2.clone();
 
-        let group = PartitionedLocalRaftGroup::new(vec![conf1, conf2, conf3]);
+        let group: PartitionedLocalRaftGroup<NoopStateMachine> =
+            PartitionedLocalRaftGroupBuilder::default()
+                .confs(vec![conf1, conf2, conf3])
+                .build();
         let mut controller = group.spawn();
 
         assert!(matches!(
@@ -176,6 +270,59 @@ mod tests {
                     },
             })
         ));
+
+        assert!(matches!(
+            controller.pass(1, 3).await,
+            Ok(ReqItem::AppendEntriesRequest {
+                req:
+                    AppendEntriesRequest {
+                        term: 2,
+                        prev_log_index: 0,
+                        prev_log_term: 0,
+                        ..
+                    },
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn send_command() {
+        init();
+        let forever = 1000 * 60 * 60 * 24 * 365;
+        let conf1 = Configuration {
+            leader: LeaderConfiguration {
+                wait_append_entries_response_timeout_millis: forever,
+                heartbeat_timeout_millis: forever,
+            },
+            follower: FollowerConfiguration {
+                election_timeout_millis: 0,
+                election_timeout_jitter_millis: 0,
+            },
+            ..Default::default()
+        };
+        let conf2 = Configuration {
+            candidate: CandidateConfiguration {
+                election_timeout_millis: forever,
+                ..Default::default()
+            },
+            follower: FollowerConfiguration {
+                election_timeout_millis: forever,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let conf3 = conf2.clone();
+
+        let group: PartitionedLocalRaftGroup<NoopStateMachine> =
+            PartitionedLocalRaftGroupBuilder::default()
+                .confs(vec![conf1, conf2, conf3])
+                .build();
+        let mut controller = group.spawn();
+
+        controller.pass(1, 2).await;
+        controller.discard(1, 3).await;
+        controller.pass(1, 2).await;
+        controller.pass(1, 2).await;
 
         assert!(matches!(
             controller.pass(1, 3).await,

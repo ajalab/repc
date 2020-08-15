@@ -1,4 +1,5 @@
 const LEADER_HEARTBEAT_TIMEOUT_MILLIS: u64 = 500;
+const LEADER_WAIT_APPEND_ENTRIES_RESPONSE_TIMEOUT_MILLIS: u64 = 500;
 const FOLLOWER_ELECTION_TIMEOUT_MILLIS: u64 = 1000;
 const FOLLOWER_ELECTION_TIMEOUT_JITTER_MILLIS: u64 = 5;
 const CANDIDATE_ELECTION_TIMEOUT_MILLIS: u64 = 1000;
@@ -14,12 +15,15 @@ pub struct Configuration {
 #[derive(Clone)]
 pub struct LeaderConfiguration {
     pub heartbeat_timeout_millis: u64,
+    pub wait_append_entries_response_timeout_millis: u64,
 }
 
 impl Default for LeaderConfiguration {
     fn default() -> Self {
         Self {
             heartbeat_timeout_millis: LEADER_HEARTBEAT_TIMEOUT_MILLIS,
+            wait_append_entries_response_timeout_millis:
+                LEADER_WAIT_APPEND_ENTRIES_RESPONSE_TIMEOUT_MILLIS,
         }
     }
 }

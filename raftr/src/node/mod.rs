@@ -1,37 +1,32 @@
 mod base;
 mod candidate;
+pub mod error;
 mod follower;
 mod leader;
-
-pub use base::BaseNode;
-
 use crate::log::Log;
 use crate::pb;
 use crate::peer::Peer;
 use crate::types::NodeId;
+pub use base::BaseNode;
+use bytes::Bytes;
+use error::CommandError;
 use std::collections::HashMap;
-use std::error;
+use std::error::Error;
+use tokio::sync::oneshot;
 
 pub enum Node {
-    Stopped,
     Follower { follower: follower::Follower },
     Candidate { candidate: candidate::Candidate },
     Leader { leader: leader::Leader },
 }
 
 impl Node {
-    pub const STOPPED: &'static str = "stopped";
     pub const FOLLOWER: &'static str = "follower";
     pub const CANDIDATE: &'static str = "candidate";
     pub const LEADER: &'static str = "leader";
 
-    pub fn new() -> Self {
-        Node::Stopped {}
-    }
-
     pub fn to_ident(&self) -> &'static str {
         match self {
-            Node::Stopped { .. } => Self::STOPPED,
             Node::Follower { .. } => Self::FOLLOWER,
             Node::Candidate { .. } => Self::CANDIDATE,
             Node::Leader { .. } => Self::LEADER,
@@ -40,7 +35,6 @@ impl Node {
 
     pub fn extract_log(&mut self) -> Log {
         match self {
-            Node::Stopped { .. } => Log::default(),
             Node::Follower { follower } => follower.extract_log(),
             Node::Candidate { candidate } => candidate.extract_log(),
             Node::Leader { leader } => leader.extract_log(),
@@ -50,7 +44,7 @@ impl Node {
     pub async fn handle_request_vote_request(
         &mut self,
         req: pb::RequestVoteRequest,
-    ) -> Result<pb::RequestVoteResponse, Box<dyn error::Error + Send>> {
+    ) -> Result<pb::RequestVoteResponse, Box<dyn Error + Send>> {
         match self {
             Node::Follower { ref mut follower } => follower.handle_request_vote_request(req).await,
             _ => unimplemented!(),
@@ -73,7 +67,7 @@ impl Node {
     pub async fn handle_append_entries_request(
         &mut self,
         req: pb::AppendEntriesRequest,
-    ) -> Result<pb::AppendEntriesResponse, Box<dyn error::Error + Send>> {
+    ) -> Result<pb::AppendEntriesResponse, Box<dyn Error + Send>> {
         match self {
             Node::Follower { ref mut follower } => {
                 follower.handle_append_entries_request(req).await
@@ -89,6 +83,21 @@ impl Node {
         match self {
             Node::Candidate { ref mut candidate } => candidate.handle_election_timeout(peers).await,
             _ => unimplemented!(),
+        }
+    }
+
+    pub async fn handle_command(
+        &mut self,
+        command: Bytes,
+        tx: oneshot::Sender<Result<(), CommandError>>,
+    ) {
+        match self {
+            Node::Leader { ref mut leader } => {
+                leader.handle_command(command, tx).await;
+            }
+            _ => {
+                let _ = tx.send(Err(CommandError::NotLeader));
+            }
         }
     }
 }

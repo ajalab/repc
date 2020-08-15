@@ -1,20 +1,87 @@
 use crate::configuration::Configuration;
+use crate::log::Log;
 use crate::message::Message;
 use crate::node::candidate;
+use crate::node::error::CommandError;
 use crate::node::follower;
 use crate::node::leader;
 use crate::node::Node;
 use crate::pb;
 use crate::peer::Peer;
+use crate::state_machine::StateMachineManager;
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::error;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
-pub struct BaseNode<P: Peer + Clone + Send + Sync + 'static> {
+pub struct BaseNode<P> {
+    id: NodeId,
+    conf: Configuration,
+    sm_manager: StateMachineManager,
+    peers: HashMap<NodeId, P>,
+    tx: mpsc::Sender<Message>,
+    rx: mpsc::Receiver<Message>,
+}
+
+impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
+    pub fn new(id: NodeId, sm_manager: StateMachineManager) -> Self {
+        let (tx, rx) = mpsc::channel(100);
+
+        Self {
+            id,
+            conf: Configuration::default(),
+            sm_manager,
+            peers: HashMap::new(),
+            tx,
+            rx,
+        }
+    }
+
+    pub fn conf(mut self, conf: Configuration) -> Self {
+        self.conf = conf;
+        self
+    }
+
+    pub fn peers(mut self, peers: HashMap<NodeId, P>) -> Self {
+        self.peers = peers;
+        self
+    }
+
+    pub fn get_tx(&self) -> mpsc::Sender<Message> {
+        return self.tx.clone();
+    }
+
+    pub async fn run(self) {
+        let term = 1;
+        let conf = Arc::new(self.conf);
+        let node = Node::Follower {
+            follower: follower::Follower::spawn(
+                self.id,
+                conf.clone(),
+                term,
+                Log::default(),
+                self.sm_manager.clone(),
+                self.tx.clone(),
+            ),
+        };
+        let mut process = BaseNodeProcess {
+            id: self.id,
+            conf: conf,
+            term,
+            node,
+            tx: self.tx,
+            rx: self.rx,
+            sm_manager: self.sm_manager,
+            peers: self.peers,
+        };
+        process.handle_messages().await
+    }
+}
+
+struct BaseNodeProcess<P: Peer + Clone + Send + Sync + 'static> {
     id: NodeId,
     conf: Arc<Configuration>,
 
@@ -25,24 +92,12 @@ pub struct BaseNode<P: Peer + Clone + Send + Sync + 'static> {
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
+    sm_manager: StateMachineManager,
     peers: HashMap<NodeId, P>,
 }
 
-impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
-    pub fn new(id: NodeId, conf: Configuration) -> Self {
-        let (tx, rx) = mpsc::channel(100);
-        BaseNode {
-            id,
-            conf: Arc::new(conf),
-            term: 1,
-            node: Node::new(),
-            tx,
-            rx,
-            peers: HashMap::new(),
-        }
-    }
-
-    async fn handle_messages(&mut self) -> Result<(), Box<dyn error::Error + Send>> {
+impl<P: Peer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
+    async fn handle_messages(&mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {
                 Message::RPCRequestVoteRequest { req, tx } => {
@@ -59,11 +114,10 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
 
                 Message::ElectionTimeout => self.handle_election_timeout().await,
 
-                Message::Command { body, tx } => self.handle_command(body, tx).await?,
+                Message::Command { body, tx } => self.handle_command(body, tx).await,
                 _ => {}
             }
         }
-        Ok(())
     }
 
     // Update the node's term and return to Follower state,
@@ -130,10 +184,9 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
     async fn handle_command(
         &mut self,
         command: Bytes,
-        tx: mpsc::Sender<Result<(), tonic::Status>>,
-    ) -> Result<(), Box<dyn error::Error + Send>> {
-        if let Node::Leader { ref leader } = self.node {}
-        Ok(())
+        tx: oneshot::Sender<Result<(), CommandError>>,
+    ) {
+        self.node.handle_command(command, tx).await;
     }
 
     fn trans_state_follower(&mut self) {
@@ -151,9 +204,10 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
                 self.conf.clone(),
                 self.term,
                 self.node.extract_log(),
+                self.sm_manager.clone(),
                 self.tx.clone(),
             ),
-        };
+        }
     }
 
     fn trans_state_candidate(&mut self) {
@@ -194,21 +248,8 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
                 self.term,
                 self.node.extract_log(),
                 &self.peers,
+                self.sm_manager.clone(),
             ),
         };
-    }
-
-    pub async fn run(
-        mut self,
-        peers: HashMap<NodeId, P>,
-    ) -> Result<(), Box<dyn error::Error + Send>> {
-        self.peers = peers;
-        self.trans_state_follower();
-
-        self.handle_messages().await
-    }
-
-    pub fn tx(&self) -> mpsc::Sender<Message> {
-        self.tx.clone()
     }
 }

@@ -3,6 +3,7 @@ use crate::deadline_clock::DeadlineClock;
 use crate::log::{Log, LogEntry};
 use crate::message::Message;
 use crate::pb;
+use crate::state_machine::StateMachineManager;
 use crate::types::{NodeId, Term};
 use log::{debug, warn};
 use rand::Rng;
@@ -28,6 +29,7 @@ pub struct Follower {
     term: Term,
     deadline_clock: DeadlineClock,
     voted_for: Option<NodeId>,
+    sm_manager: StateMachineManager,
     log: Option<Log>,
 }
 
@@ -37,6 +39,7 @@ impl Follower {
         conf: Arc<Configuration>,
         term: Term,
         log: Log,
+        sm_manager: StateMachineManager,
         mut tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
@@ -61,6 +64,7 @@ impl Follower {
             term,
             voted_for: None,
             deadline_clock,
+            sm_manager,
             log: Some(log),
         }
     }

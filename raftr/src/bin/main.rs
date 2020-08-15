@@ -1,15 +1,24 @@
+use bytes::Bytes;
 use clap::{App, Arg};
 use env_logger;
-
-use std::collections::HashMap;
-
 use raftr::configuration::Configuration;
 use raftr::group::grpc::GRPCRaftGroup;
+use raftr::StateMachine;
+use std::collections::HashMap;
+
+struct Logger {}
+
+impl StateMachine for Logger {
+    fn apply<P: AsRef<str>>(&mut self, path: P, command: Bytes) {
+        log::debug!("{}", path.as_ref());
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
+    let logger = Logger {};
     let matches = App::new("raftr")
         .arg(Arg::with_name("id").index(1).required(true))
         .get_matches();
@@ -21,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     addrs.insert(3, "[::1]:50053".to_owned());
 
     let conf = Configuration::default();
-    let group = GRPCRaftGroup::new(id, conf, addrs);
+    let group = GRPCRaftGroup::new(id, conf, addrs, logger);
     group.run().await?;
 
     Ok(())

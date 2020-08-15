@@ -1,11 +1,11 @@
+use crate::node::error::CommandError;
 use crate::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::error;
-use tokio::sync::mpsc;
-use tonic::Status;
+use tokio::sync::{mpsc, oneshot};
 
 pub enum Message {
     RPCRequestVoteRequest {
@@ -30,7 +30,7 @@ pub enum Message {
 
     Command {
         body: Bytes,
-        tx: mpsc::Sender<Result<(), Status>>,
+        tx: oneshot::Sender<Result<(), CommandError>>,
     },
 
     ElectionTimeout,
