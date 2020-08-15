@@ -1,5 +1,5 @@
 use crate::configuration::Configuration;
-use crate::raft::node::BaseNode;
+use crate::raft::node::Node;
 use crate::raft::pb::raft_server::RaftServer;
 use crate::raft::peer::grpc::GrpcPeer;
 use crate::raft::service::RaftService;
@@ -35,7 +35,7 @@ where
         let conf = Arc::new(self.conf);
         let node_conf = conf.group.nodes.get(&self.id).unwrap();
         let sm_manager = StateMachineManager::spawn(self.state_machine);
-        let node = BaseNode::new(self.id, sm_manager).conf(conf.clone());
+        let node = Node::new(self.id, sm_manager).conf(conf.clone());
 
         // start raft server
         let raft_addr = SocketAddr::new(node_conf.ip, node_conf.raft_port);

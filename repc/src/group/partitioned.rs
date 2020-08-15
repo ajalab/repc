@@ -1,5 +1,5 @@
 use crate::configuration::Configuration;
-use crate::raft::node::BaseNode;
+use crate::raft::node::Node;
 use crate::raft::peer::error::PeerError;
 use crate::raft::peer::partitioned::{self, PartitionedPeer, PartitionedPeerController};
 use crate::raft::peer::service::ServicePeer;
@@ -100,13 +100,13 @@ where
             .into_iter()
             .map(|state_machine| StateMachineManager::spawn(state_machine))
             .collect::<Vec<_>>();
-        let nodes: Vec<BaseNode<PartitionedPeer>> = self
+        let nodes: Vec<Node<PartitionedPeer>> = self
             .confs
             .into_iter()
             .zip(sm_managers.into_iter())
             .enumerate()
             .map(|(i, (conf, smm_sender))| {
-                BaseNode::new(i as NodeId + 1, smm_sender).conf(Arc::new(conf))
+                Node::new(i as NodeId + 1, smm_sender).conf(Arc::new(conf))
             })
             .collect();
         let services: Vec<RaftService> = nodes

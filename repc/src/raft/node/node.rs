@@ -1,11 +1,11 @@
+use super::candidate;
+use super::error::CommandError;
+use super::follower;
+use super::leader;
+use super::state::State;
 use crate::configuration::Configuration;
 use crate::raft::log::Log;
 use crate::raft::message::Message;
-use crate::raft::node::candidate;
-use crate::raft::node::error::CommandError;
-use crate::raft::node::follower;
-use crate::raft::node::leader;
-use crate::raft::node::Node;
 use crate::raft::pb;
 use crate::raft::peer::Peer;
 use crate::state_machine::StateMachineManager;
@@ -17,7 +17,7 @@ use std::error;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-pub struct BaseNode<P> {
+pub struct Node<P> {
     id: NodeId,
     conf: Arc<Configuration>,
     sm_manager: StateMachineManager,
@@ -26,7 +26,7 @@ pub struct BaseNode<P> {
     rx: mpsc::Receiver<Message>,
 }
 
-impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
+impl<P: Peer + Clone + Send + Sync + 'static> Node<P> {
     pub fn new(id: NodeId, sm_manager: StateMachineManager) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
@@ -56,7 +56,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
 
     pub async fn run(self) {
         let term = 1;
-        let node = Node::Follower {
+        let node = State::Follower {
             follower: follower::Follower::spawn(
                 self.id,
                 self.conf.clone(),
@@ -87,7 +87,7 @@ struct BaseNodeProcess<P: Peer + Clone + Send + Sync + 'static> {
     // TODO: make these persistent
     term: Term,
 
-    node: Node,
+    node: State,
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
@@ -197,7 +197,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
             "become a follower."
         );
 
-        self.node = Node::Follower {
+        self.node = State::Follower {
             follower: follower::Follower::spawn(
                 self.id,
                 self.conf.clone(),
@@ -219,7 +219,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
         );
 
         let quorum = (self.peers.len() + 1) / 2;
-        self.node = Node::Candidate {
+        self.node = State::Candidate {
             candidate: candidate::Candidate::spawn(
                 self.id,
                 self.conf.clone(),
@@ -240,7 +240,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
             "become a leader."
         );
 
-        self.node = Node::Leader {
+        self.node = State::Leader {
             leader: leader::Leader::spawn(
                 self.id,
                 self.conf.clone(),
