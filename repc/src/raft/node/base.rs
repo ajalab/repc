@@ -19,7 +19,7 @@ use tokio::sync::{mpsc, oneshot};
 
 pub struct BaseNode<P> {
     id: NodeId,
-    conf: Configuration,
+    conf: Arc<Configuration>,
     sm_manager: StateMachineManager,
     peers: HashMap<NodeId, P>,
     tx: mpsc::Sender<Message>,
@@ -32,7 +32,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
 
         Self {
             id,
-            conf: Configuration::default(),
+            conf: Arc::default(),
             sm_manager,
             peers: HashMap::new(),
             tx,
@@ -40,7 +40,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
         }
     }
 
-    pub fn conf(mut self, conf: Configuration) -> Self {
+    pub fn conf(mut self, conf: Arc<Configuration>) -> Self {
         self.conf = conf;
         self
     }
@@ -56,11 +56,10 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
 
     pub async fn run(self) {
         let term = 1;
-        let conf = Arc::new(self.conf);
         let node = Node::Follower {
             follower: follower::Follower::spawn(
                 self.id,
-                conf.clone(),
+                self.conf.clone(),
                 term,
                 Log::default(),
                 self.sm_manager.clone(),
@@ -69,7 +68,7 @@ impl<P: Peer + Clone + Send + Sync + 'static> BaseNode<P> {
         };
         let mut process = BaseNodeProcess {
             id: self.id,
-            conf: conf,
+            conf: self.conf,
             term,
             node,
             tx: self.tx,

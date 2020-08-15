@@ -9,6 +9,7 @@ use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 pub struct PartitionedLocalRepcGroupBuilder<T> {
     confs: Vec<Configuration>,
@@ -104,7 +105,9 @@ where
             .into_iter()
             .zip(sm_managers.into_iter())
             .enumerate()
-            .map(|(i, (conf, smm_sender))| BaseNode::new(i as NodeId + 1, smm_sender).conf(conf))
+            .map(|(i, (conf, smm_sender))| {
+                BaseNode::new(i as NodeId + 1, smm_sender).conf(Arc::new(conf))
+            })
             .collect();
         let services: Vec<RaftService> = nodes
             .iter()

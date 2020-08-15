@@ -1,3 +1,7 @@
+use crate::types::NodeId;
+use std::collections::HashMap;
+use std::net::IpAddr;
+
 const LEADER_HEARTBEAT_TIMEOUT_MILLIS: u64 = 500;
 const LEADER_WAIT_APPEND_ENTRIES_RESPONSE_TIMEOUT_MILLIS: u64 = 500;
 const FOLLOWER_ELECTION_TIMEOUT_MILLIS: u64 = 1000;
@@ -7,9 +11,32 @@ const CANDIDATE_ELECTION_TIMEOUT_JITTER_MILLIS: u64 = 5;
 
 #[derive(Clone, Default)]
 pub struct Configuration {
+    pub group: GroupConfiguration,
     pub leader: LeaderConfiguration,
     pub candidate: CandidateConfiguration,
     pub follower: FollowerConfiguration,
+}
+
+#[derive(Clone, Default)]
+pub struct GroupConfiguration {
+    pub nodes: HashMap<NodeId, NodeConfiguration>,
+}
+
+#[derive(Clone)]
+pub struct NodeConfiguration {
+    pub ip: IpAddr,
+    pub raft_port: u16,
+    pub repc_port: u16,
+}
+
+impl NodeConfiguration {
+    pub fn new<I: Into<IpAddr>>(ip: I, raft_port: u16, repc_port: u16) -> Self {
+        Self {
+            ip: ip.into(),
+            raft_port,
+            repc_port,
+        }
+    }
 }
 
 #[derive(Clone)]

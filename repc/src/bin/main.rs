@@ -1,10 +1,10 @@
 use bytes::Bytes;
 use clap::{App, Arg};
 use env_logger;
-use repc::configuration::Configuration;
+use repc::configuration::{Configuration, NodeConfiguration};
 use repc::group::grpc::GrpcRepcGroup;
 use repc::StateMachine;
-use std::collections::HashMap;
+use std::net::Ipv6Addr;
 
 struct Logger {}
 
@@ -24,13 +24,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .get_matches();
 
     let id: u32 = matches.value_of("id").unwrap().parse()?;
-    let mut addrs = HashMap::new();
-    addrs.insert(1, "[::1]:50051".to_owned());
-    addrs.insert(2, "[::1]:50052".to_owned());
-    addrs.insert(3, "[::1]:50053".to_owned());
 
-    let conf = Configuration::default();
-    let group = GrpcRepcGroup::new(id, conf, addrs, logger);
+    let mut conf = Configuration::default();
+    let ip = "[::1]".parse::<Ipv6Addr>()?;
+    let nodes = &mut conf.group.nodes;
+    nodes.insert(1, NodeConfiguration::new(ip, 50051, 60051));
+    nodes.insert(2, NodeConfiguration::new(ip, 50052, 60052));
+    nodes.insert(3, NodeConfiguration::new(ip, 50053, 60053));
+
+    let group = GrpcRepcGroup::new(id, conf, logger);
     group.run().await?;
 
     Ok(())
