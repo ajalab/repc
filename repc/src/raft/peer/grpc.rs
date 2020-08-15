@@ -1,15 +1,15 @@
-use crate::pb::{
+use super::error::{ConnectionError, PeerError};
+use super::Peer;
+use crate::raft::pb::{
     raft_client, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
 };
-use crate::peer::error::{ConnectionError, PeerError};
-use crate::peer::Peer;
 use log::warn;
 use std::error;
 use tokio::time::{timeout, Duration};
 
 #[derive(Clone)]
-pub struct GRPCPeer {
+pub struct GrpcPeer {
     client: raft_client::RaftClient<tonic::transport::Channel>,
 }
 
@@ -17,7 +17,7 @@ const CONNECTION_RETRY_TIMEOUT_MILLIS: u64 = 5000;
 const CONNECTION_RETRY_INTERVAL_MILLIS: u64 = 5000;
 const CONNECTION_RETRY_MAX: usize = 100;
 
-impl GRPCPeer {
+impl GrpcPeer {
     pub async fn connect<T>(addr: T) -> Result<Self, ConnectionError>
     where
         T: AsRef<str>,
@@ -32,7 +32,7 @@ impl GRPCPeer {
 
             let e: Box<dyn error::Error> = match f {
                 Ok(Ok(client)) => {
-                    return Ok(GRPCPeer { client });
+                    return Ok(GrpcPeer { client });
                 }
                 Ok(Err(e)) => e.into(),
                 Err(e) => e.into(),
@@ -50,7 +50,7 @@ impl GRPCPeer {
 }
 
 #[tonic::async_trait]
-impl Peer for GRPCPeer {
+impl Peer for GrpcPeer {
     async fn request_vote(
         &mut self,
         req: RequestVoteRequest,

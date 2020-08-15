@@ -1,8 +1,8 @@
-use crate::pb::{
+use super::error::PeerError;
+use super::Peer;
+use crate::raft::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use crate::peer::error::PeerError;
-use crate::peer::Peer;
 use log::debug;
 use tokio::sync::mpsc;
 

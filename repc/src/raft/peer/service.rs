@@ -1,9 +1,9 @@
-use crate::pb::{
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+use super::error::PeerError;
+use super::Peer;
+use crate::raft::pb::{
+    raft_server::Raft, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
 };
-use crate::peer::error::PeerError;
-use crate::peer::Peer;
-use crate::service::Raft;
 use tonic::Request;
 
 #[derive(Clone)]

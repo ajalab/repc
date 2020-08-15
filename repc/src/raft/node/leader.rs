@@ -1,9 +1,9 @@
 use super::error::CommandError;
 use crate::configuration::Configuration;
 use crate::configuration::LeaderConfiguration;
-use crate::log::{Log, LogEntry};
-use crate::pb;
-use crate::peer::Peer;
+use crate::raft::log::{Log, LogEntry};
+use crate::raft::pb;
+use crate::raft::peer::Peer;
 use crate::state_machine::StateMachineManager;
 use crate::types::{LogIndex, NodeId, Term};
 use bytes::Bytes;

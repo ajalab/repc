@@ -1,8 +1,8 @@
 use crate::configuration::Configuration;
-use crate::node::BaseNode;
-use crate::pb::raft_server::RaftServer;
-use crate::peer::grpc::GRPCPeer;
-use crate::service::RaftService;
+use crate::raft::node::BaseNode;
+use crate::raft::pb::raft_server::RaftServer;
+use crate::raft::peer::grpc::GrpcPeer;
+use crate::raft::service::RaftService;
 use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use log::info;
@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use std::error;
 use tonic::transport::Server;
 
-pub struct GRPCRaftGroup<S> {
+pub struct GrpcRepcGroup<S> {
     id: NodeId,
     conf: Configuration,
     addrs: HashMap<NodeId, String>,
     state_machine: S,
 }
 
-impl<S> GRPCRaftGroup<S>
+impl<S> GrpcRepcGroup<S>
 where
     S: StateMachine + Send + 'static,
 {
@@ -27,7 +27,7 @@ where
         addrs: HashMap<NodeId, String>,
         state_machine: S,
     ) -> Self {
-        GRPCRaftGroup {
+        GrpcRepcGroup {
             id,
             addrs,
             conf,
@@ -55,14 +55,14 @@ where
                 continue;
             }
             ids.push(*id);
-            peer_futures.push(GRPCPeer::connect(addr));
+            peer_futures.push(GrpcPeer::connect(addr));
         }
 
         let result = futures::future::try_join_all(peer_futures).await;
         let peers = result
             .map(|peers| ids.into_iter().zip(peers).collect::<Vec<_>>())?
             .into_iter()
-            .collect::<HashMap<NodeId, GRPCPeer>>();
+            .collect::<HashMap<NodeId, GrpcPeer>>();
 
         info!(
             "start serving gRPC Raft interface on {} for inter-cluster communication",

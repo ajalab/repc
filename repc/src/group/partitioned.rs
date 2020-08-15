@@ -1,22 +1,22 @@
 use crate::configuration::Configuration;
-use crate::node::BaseNode;
-use crate::peer::error::PeerError;
-use crate::peer::partitioned::{self, PartitionedPeer, PartitionedPeerController};
-use crate::peer::service::ServicePeer;
-use crate::peer::Peer;
-use crate::service::RaftService;
+use crate::raft::node::BaseNode;
+use crate::raft::peer::error::PeerError;
+use crate::raft::peer::partitioned::{self, PartitionedPeer, PartitionedPeerController};
+use crate::raft::peer::service::ServicePeer;
+use crate::raft::peer::Peer;
+use crate::raft::service::RaftService;
 use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
-pub struct PartitionedLocalRaftGroupBuilder<T> {
+pub struct PartitionedLocalRepcGroupBuilder<T> {
     confs: Vec<Configuration>,
     state_machines: T,
 }
 
-impl PartitionedLocalRaftGroupBuilder<()> {
-    pub fn new() -> PartitionedLocalRaftGroupBuilder<()> {
+impl PartitionedLocalRepcGroupBuilder<()> {
+    pub fn new() -> PartitionedLocalRepcGroupBuilder<()> {
         Self {
             confs: vec![],
             state_machines: (),
@@ -24,7 +24,7 @@ impl PartitionedLocalRaftGroupBuilder<()> {
     }
 }
 
-impl<S> Default for PartitionedLocalRaftGroupBuilder<PhantomData<S>> {
+impl<S> Default for PartitionedLocalRepcGroupBuilder<PhantomData<S>> {
     fn default() -> Self {
         Self {
             state_machines: PhantomData,
@@ -33,7 +33,7 @@ impl<S> Default for PartitionedLocalRaftGroupBuilder<PhantomData<S>> {
     }
 }
 
-impl<T> PartitionedLocalRaftGroupBuilder<T> {
+impl<T> PartitionedLocalRepcGroupBuilder<T> {
     pub fn state_machines(self, state_machines: T) -> Self {
         Self {
             state_machines,
@@ -46,50 +46,50 @@ impl<T> PartitionedLocalRaftGroupBuilder<T> {
     }
 }
 
-impl<S> PartitionedLocalRaftGroupBuilder<PhantomData<S>>
+impl<S> PartitionedLocalRepcGroupBuilder<PhantomData<S>>
 where
     S: StateMachine + Send + Default + 'static,
 {
-    pub fn build(self) -> PartitionedLocalRaftGroup<S> {
+    pub fn build(self) -> PartitionedLocalRepcGroup<S> {
         let n = self.confs.len();
-        PartitionedLocalRaftGroup {
+        PartitionedLocalRepcGroup {
             confs: self.confs,
             state_machines: (0..n).map(|_| S::default()).collect(),
         }
     }
 }
 
-impl<S> PartitionedLocalRaftGroupBuilder<S>
+impl<S> PartitionedLocalRepcGroupBuilder<S>
 where
     S: StateMachine + Send + Clone + 'static,
 {
-    pub fn build(self) -> PartitionedLocalRaftGroup<S> {
+    pub fn build(self) -> PartitionedLocalRepcGroup<S> {
         let n = self.confs.len();
-        PartitionedLocalRaftGroup {
+        PartitionedLocalRepcGroup {
             confs: self.confs,
             state_machines: vec![self.state_machines; n],
         }
     }
 }
 
-impl<S> PartitionedLocalRaftGroupBuilder<Vec<S>>
+impl<S> PartitionedLocalRepcGroupBuilder<Vec<S>>
 where
     S: StateMachine + Send + Clone + 'static,
 {
-    pub fn build(self) -> PartitionedLocalRaftGroup<S> {
+    pub fn build(self) -> PartitionedLocalRepcGroup<S> {
         debug_assert_eq!(self.confs.len(), self.state_machines.len());
-        PartitionedLocalRaftGroup {
+        PartitionedLocalRepcGroup {
             confs: self.confs,
             state_machines: self.state_machines,
         }
     }
 }
-pub struct PartitionedLocalRaftGroup<S> {
+pub struct PartitionedLocalRepcGroup<S> {
     confs: Vec<Configuration>,
     state_machines: Vec<S>,
 }
 
-impl<S> PartitionedLocalRaftGroup<S>
+impl<S> PartitionedLocalRepcGroup<S>
 where
     S: StateMachine + Send + 'static,
 {
@@ -175,8 +175,8 @@ mod tests {
 
     use super::*;
     use crate::configuration::*;
-    use crate::pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
-    use crate::peer::partitioned::ReqItem;
+    use crate::raft::pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
+    use crate::raft::peer::partitioned::ReqItem;
     use bytes::Bytes;
 
     #[derive(Default, Clone)]
@@ -218,8 +218,8 @@ mod tests {
         };
         let conf3 = conf2.clone();
 
-        let group: PartitionedLocalRaftGroup<NoopStateMachine> =
-            PartitionedLocalRaftGroupBuilder::default()
+        let group: PartitionedLocalRepcGroup<NoopStateMachine> =
+            PartitionedLocalRepcGroupBuilder::default()
                 .confs(vec![conf1, conf2, conf3])
                 .build();
         let mut controller = group.spawn();
@@ -313,8 +313,8 @@ mod tests {
         };
         let conf3 = conf2.clone();
 
-        let group: PartitionedLocalRaftGroup<NoopStateMachine> =
-            PartitionedLocalRaftGroupBuilder::default()
+        let group: PartitionedLocalRepcGroup<NoopStateMachine> =
+            PartitionedLocalRepcGroupBuilder::default()
                 .confs(vec![conf1, conf2, conf3])
                 .build();
         let mut controller = group.spawn();

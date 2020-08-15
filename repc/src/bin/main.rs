@@ -2,7 +2,7 @@ use bytes::Bytes;
 use clap::{App, Arg};
 use env_logger;
 use repc::configuration::Configuration;
-use repc::group::grpc::GRPCRaftGroup;
+use repc::group::grpc::GrpcRepcGroup;
 use repc::StateMachine;
 use std::collections::HashMap;
 
@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     addrs.insert(3, "[::1]:50053".to_owned());
 
     let conf = Configuration::default();
-    let group = GRPCRaftGroup::new(id, conf, addrs, logger);
+    let group = GrpcRepcGroup::new(id, conf, addrs, logger);
     group.run().await?;
 
     Ok(())

@@ -1,9 +1,9 @@
 use crate::configuration::Configuration;
-use crate::deadline_clock::DeadlineClock;
-use crate::log::Log;
-use crate::message::Message;
-use crate::pb;
-use crate::peer::Peer;
+use crate::raft::deadline_clock::DeadlineClock;
+use crate::raft::log::Log;
+use crate::raft::message::Message;
+use crate::raft::pb;
+use crate::raft::peer::Peer;
 use crate::types::{NodeId, Term};
 use log::{debug, info, warn};
 use rand::Rng;

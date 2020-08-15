@@ -1,5 +1,5 @@
-use crate::node::error::CommandError;
-use crate::pb::{
+use super::node::error::CommandError;
+use super::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::types::NodeId;

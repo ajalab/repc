@@ -1,8 +1,8 @@
 use crate::configuration::Configuration;
-use crate::deadline_clock::DeadlineClock;
-use crate::log::{Log, LogEntry};
-use crate::message::Message;
-use crate::pb;
+use crate::raft::deadline_clock::DeadlineClock;
+use crate::raft::log::{Log, LogEntry};
+use crate::raft::message::Message;
+use crate::raft::pb;
 use crate::state_machine::StateMachineManager;
 use crate::types::{NodeId, Term};
 use log::{debug, warn};

@@ -1,4 +1,4 @@
-use crate::pb::{
+use crate::raft::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 
