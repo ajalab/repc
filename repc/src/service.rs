@@ -11,12 +11,12 @@ use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
 use tonic::body::BoxBody;
 use tonic::codec::{DecodeBuf, Decoder, Streaming};
-use tonic::transport::Body;
+use tonic::transport::{Body, NamedService};
 use tonic::Status;
 use tower_service::Service;
 
 #[derive(Debug)]
-pub enum RSMServiceError {
+pub enum RepcServiceError {
     NodeTerminated,
     NodeCrashed,
     CommandInvalid(Status),
@@ -24,9 +24,9 @@ pub enum RSMServiceError {
     CommandFailed(CommandError),
 }
 
-impl RSMServiceError {
+impl RepcServiceError {
     fn description(&self) -> &'static str {
-        use RSMServiceError::*;
+        use RepcServiceError::*;
         match self {
             NodeTerminated => "command could not be handled because the node has been terminated",
             NodeCrashed => "node failed to handle the command during its process",
@@ -37,7 +37,7 @@ impl RSMServiceError {
     }
 
     fn into_status(self) -> Status {
-        use RSMServiceError::*;
+        use RepcServiceError::*;
         match self {
             CommandInvalid(status) => status,
             _ => Status::internal(self.to_string()),
@@ -49,9 +49,9 @@ impl RSMServiceError {
     }
 }
 
-impl fmt::Display for RSMServiceError {
+impl fmt::Display for RepcServiceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use RSMServiceError::*;
+        use RepcServiceError::*;
         write!(f, "{}", self.description())?;
         match self {
             CommandInvalid(s) => write!(f, ": {}", s),
@@ -61,22 +61,22 @@ impl fmt::Display for RSMServiceError {
     }
 }
 
-impl error::Error for RSMServiceError {}
+impl error::Error for RepcServiceError {}
 
 #[derive(Clone)]
-struct RSMInnerService {
+struct RepcInnerService {
     tx: mpsc::Sender<Message>,
 }
 
-impl RSMInnerService {
+impl RepcInnerService {
     pub fn new(tx: mpsc::Sender<Message>) -> Self {
-        RSMInnerService { tx }
+        RepcInnerService { tx }
     }
 
     pub async fn handle(
         &mut self,
         req: tonic::Request<Bytes>,
-    ) -> Result<tonic::Response<Bytes>, RSMServiceError> {
+    ) -> Result<tonic::Response<Bytes>, RepcServiceError> {
         let body = req.into_inner();
         let (tx_callback, rx_callback) = oneshot::channel();
         let command = Message::Command {
@@ -85,13 +85,13 @@ impl RSMInnerService {
         };
         self.tx
             .send(command)
-            .map_err(|_| RSMServiceError::NodeTerminated)
+            .map_err(|_| RepcServiceError::NodeTerminated)
             .await?;
 
         rx_callback
             .await
-            .map_err(|_| RSMServiceError::NodeCrashed)
-            .and_then(|res| res.map_err(RSMServiceError::CommandFailed))?;
+            .map_err(|_| RepcServiceError::NodeCrashed)
+            .and_then(|res| res.map_err(RepcServiceError::CommandFailed))?;
 
         // TODO: service returns tonic::Response
 
@@ -110,23 +110,24 @@ impl Decoder for IdentDecoder {
     }
 }
 
-struct RSMService {
-    inner: RSMInnerService,
+#[derive(Clone)]
+pub(crate) struct RepcService {
+    inner: RepcInnerService,
 }
 
-impl RSMService {
-    fn new(tx: mpsc::Sender<Message>) -> Self {
-        RSMService {
-            inner: RSMInnerService::new(tx),
+impl RepcService {
+    pub fn new(tx: mpsc::Sender<Message>) -> Self {
+        RepcService {
+            inner: RepcInnerService::new(tx),
         }
     }
 }
 
-impl RSMService {
+impl RepcService {
     async fn handle(
-        mut inner: RSMInnerService,
+        mut inner: RepcInnerService,
         req: http::Request<Body>,
-    ) -> Result<http::Response<BoxBody>, RSMServiceError> {
+    ) -> Result<http::Response<BoxBody>, RepcServiceError> {
         let (parts, body) = req.into_parts();
 
         let stream = Streaming::new_request(IdentDecoder::default(), body);
@@ -134,8 +135,8 @@ impl RSMService {
 
         let body = match stream.try_next().await {
             Ok(Some(req)) => Ok(req),
-            Ok(None) => Err(RSMServiceError::CommandMissing),
-            Err(e) => Err(RSMServiceError::CommandInvalid(e)),
+            Ok(None) => Err(RepcServiceError::CommandMissing),
+            Err(e) => Err(RepcServiceError::CommandInvalid(e)),
         }?;
 
         let req = tonic::Request::from_http(http::Request::from_parts(parts, body));
@@ -147,7 +148,7 @@ impl RSMService {
     }
 }
 
-impl Service<http::Request<Body>> for RSMService {
+impl Service<http::Request<Body>> for RepcService {
     type Response = http::Response<BoxBody>;
     type Error = futures::never::Never;
     type Future =
@@ -160,9 +161,13 @@ impl Service<http::Request<Body>> for RSMService {
     fn call(&mut self, req: http::Request<Body>) -> Self::Future {
         let inner = self.inner.clone();
         Box::pin(async move {
-            let res = RSMService::handle(inner, req).await;
+            let res = RepcService::handle(inner, req).await;
             res.or_else(|e| Ok(e.into_http()))
                 .and_then(Ok::<_, Self::Error>)
         })
     }
+}
+
+impl NamedService for RepcService {
+    const NAME: &'static str = "repc.Repc";
 }

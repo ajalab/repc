@@ -3,6 +3,7 @@ use crate::raft::node::BaseNode;
 use crate::raft::pb::raft_server::RaftServer;
 use crate::raft::peer::grpc::GrpcPeer;
 use crate::raft::service::RaftService;
+use crate::service::RepcService;
 use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use log::info;
@@ -32,22 +33,23 @@ where
 
     pub async fn run(self) -> Result<(), Box<dyn error::Error>> {
         let conf = Arc::new(self.conf);
+        let node_conf = conf.group.nodes.get(&self.id).unwrap();
         let sm_manager = StateMachineManager::spawn(self.state_machine);
         let node = BaseNode::new(self.id, sm_manager).conf(conf.clone());
 
-        // start server
-        // let addr = self.addrs.get(&self.id).unwrap().parse()?;
-        let conf_node = conf.group.nodes.get(&self.id).unwrap();
-        let raft_addr = SocketAddr::new(conf_node.ip, conf_node.raft_port);
-        let service = RaftService::new(node.get_tx());
-        let server = Server::builder().add_service(RaftServer::new(service));
-        info!(
-            "start serving gRPC Raft interface on {} for inter-cluster communication",
-            raft_addr
-        );
-        tokio::spawn(server.serve(raft_addr));
+        // start raft server
+        let raft_addr = SocketAddr::new(node_conf.ip, node_conf.raft_port);
+        let raft_service = RaftService::new(node.get_tx());
+        let raft_server = Server::builder().add_service(RaftServer::new(raft_service));
+        info!("start serving gRPC Raft service on {}", raft_addr);
+        tokio::spawn(raft_server.serve(raft_addr));
 
         // start rpc server
+        let repc_addr = SocketAddr::new(node_conf.ip, node_conf.repc_port);
+        let repc_service = RepcService::new(node.get_tx());
+        let repc_server = Server::builder().add_service(repc_service);
+        info!("start serving Repc service on {}", repc_addr);
+        tokio::spawn(repc_server.serve(repc_addr));
 
         // set up connections to other nodes
         let mut ids = Vec::new();

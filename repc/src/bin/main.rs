@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let id: u32 = matches.value_of("id").unwrap().parse()?;
 
     let mut conf = Configuration::default();
-    let ip = "[::1]".parse::<Ipv6Addr>()?;
+    let ip = "::1".parse::<Ipv6Addr>()?;
     let nodes = &mut conf.group.nodes;
     nodes.insert(1, NodeConfiguration::new(ip, 50051, 60051));
     nodes.insert(2, NodeConfiguration::new(ip, 50052, 60052));
