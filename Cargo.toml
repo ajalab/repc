@@ -1,6 +1,6 @@
 [workspace]
 
 members = [
-    "raftr",
+    "repc",
     "examples"
 ]

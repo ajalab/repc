@@ -1,6 +1,5 @@
 pub mod configuration;
 mod deadline_clock;
-mod error;
 pub mod group;
 mod log;
 mod message;

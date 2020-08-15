@@ -1,9 +1,9 @@
 use bytes::Bytes;
 use clap::{App, Arg};
 use env_logger;
-use raftr::configuration::Configuration;
-use raftr::group::grpc::GRPCRaftGroup;
-use raftr::StateMachine;
+use repc::configuration::Configuration;
+use repc::group::grpc::GRPCRaftGroup;
+use repc::StateMachine;
 use std::collections::HashMap;
 
 struct Logger {}
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let logger = Logger {};
-    let matches = App::new("raftr")
+    let matches = App::new("repc")
         .arg(Arg::with_name("id").index(1).required(true))
         .get_matches();
 
