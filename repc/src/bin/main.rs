@@ -3,7 +3,7 @@ use clap::{App, Arg};
 use env_logger;
 use repc::configuration::{Configuration, NodeConfiguration};
 use repc::group::grpc::GrpcRepcGroup;
-use repc::state_machine::{StateMachine, StateMachineError};
+use repc::state_machine::{error::StateMachineError, StateMachine};
 use std::net::Ipv6Addr;
 
 struct Logger {}

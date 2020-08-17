@@ -1,4 +1,5 @@
-use crate::state_machine::{ApplyError, StateMachine, StateMachineError};
+use crate::state_machine::error::{ApplyError, StateMachineError};
+use crate::state_machine::StateMachine;
 use bytes::{Bytes, BytesMut};
 use prost::Message;
 use tonic::transport::NamedService;
