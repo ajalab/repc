@@ -8,34 +8,16 @@ use crate::raft::service::RaftService;
 use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub struct PartitionedLocalRepcGroupBuilder<T> {
+#[derive(Default)]
+pub struct PartitionedLocalRepcGroupBuilder<S> {
     confs: Vec<Configuration>,
-    state_machines: T,
+    state_machines: Vec<S>,
 }
 
-impl PartitionedLocalRepcGroupBuilder<()> {
-    pub fn new() -> PartitionedLocalRepcGroupBuilder<()> {
-        Self {
-            confs: vec![],
-            state_machines: (),
-        }
-    }
-}
-
-impl<S> Default for PartitionedLocalRepcGroupBuilder<PhantomData<S>> {
-    fn default() -> Self {
-        Self {
-            state_machines: PhantomData,
-            confs: Default::default(),
-        }
-    }
-}
-
-impl<T> PartitionedLocalRepcGroupBuilder<T> {
-    pub fn state_machines(self, state_machines: T) -> Self {
+impl<S> PartitionedLocalRepcGroupBuilder<S> {
+    pub fn state_machines(self, state_machines: Vec<S>) -> Self {
         Self {
             state_machines,
             ..self
@@ -47,35 +29,9 @@ impl<T> PartitionedLocalRepcGroupBuilder<T> {
     }
 }
 
-impl<S> PartitionedLocalRepcGroupBuilder<PhantomData<S>>
-where
-    S: StateMachine + Send + Default + 'static,
-{
-    pub fn build(self) -> PartitionedLocalRepcGroup<S> {
-        let n = self.confs.len();
-        PartitionedLocalRepcGroup {
-            confs: self.confs,
-            state_machines: (0..n).map(|_| S::default()).collect(),
-        }
-    }
-}
-
 impl<S> PartitionedLocalRepcGroupBuilder<S>
 where
-    S: StateMachine + Send + Clone + 'static,
-{
-    pub fn build(self) -> PartitionedLocalRepcGroup<S> {
-        let n = self.confs.len();
-        PartitionedLocalRepcGroup {
-            confs: self.confs,
-            state_machines: vec![self.state_machines; n],
-        }
-    }
-}
-
-impl<S> PartitionedLocalRepcGroupBuilder<Vec<S>>
-where
-    S: StateMachine + Send + Clone + 'static,
+    S: StateMachine + Send + 'static,
 {
     pub fn build(self) -> PartitionedLocalRepcGroup<S> {
         debug_assert_eq!(self.confs.len(), self.state_machines.len());
@@ -85,6 +41,7 @@ where
         }
     }
 }
+
 pub struct PartitionedLocalRepcGroup<S> {
     confs: Vec<Configuration>,
     state_machines: Vec<S>,
@@ -170,174 +127,5 @@ impl<P: RaftPeer + Send + Sync> PartitionedLocalRaftGroupController<P> {
             .unwrap()
             .discard()
             .await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    use crate::configuration::*;
-    use crate::raft::pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
-    use crate::raft::peer::partitioned::ReqItem;
-    use bytes::Bytes;
-
-    #[derive(Default, Clone)]
-    struct NoopStateMachine {}
-
-    impl StateMachine for NoopStateMachine {
-        fn apply<P: AsRef<str>>(&mut self, path: P, command: Bytes) {}
-    }
-
-    fn init() {
-        let _ = env_logger::builder().is_test(true).try_init();
-    }
-
-    #[tokio::test]
-    async fn initial_election() {
-        init();
-        let forever = 1000 * 60 * 60 * 24 * 365;
-        let conf1 = Configuration {
-            leader: LeaderConfiguration {
-                wait_append_entries_response_timeout_millis: forever,
-                heartbeat_timeout_millis: forever,
-            },
-            follower: FollowerConfiguration {
-                election_timeout_millis: 0,
-                election_timeout_jitter_millis: 0,
-            },
-            ..Default::default()
-        };
-        let conf2 = Configuration {
-            candidate: CandidateConfiguration {
-                election_timeout_millis: forever,
-                ..Default::default()
-            },
-            follower: FollowerConfiguration {
-                election_timeout_millis: forever,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let conf3 = conf2.clone();
-
-        let group: PartitionedLocalRepcGroup<NoopStateMachine> =
-            PartitionedLocalRepcGroupBuilder::default()
-                .confs(vec![conf1, conf2, conf3])
-                .build();
-        let mut controller = group.spawn();
-
-        assert!(matches!(
-            controller.pass(1, 2).await,
-            Ok(ReqItem::RequestVoteRequest {
-                req:
-                    RequestVoteRequest {
-                        term: 2,
-                        last_log_index: 0,
-                        ..
-                    },
-            })
-        ));
-
-        assert!(matches!(
-            controller.discard(1, 3).await,
-            Ok(ReqItem::RequestVoteRequest {
-                req:
-                    RequestVoteRequest {
-                        term: 2,
-                        last_log_index: 0,
-                        ..
-                    },
-            })
-        ));
-
-        assert!(matches!(
-            controller.pass(1, 2).await,
-            Ok(ReqItem::RequestVoteResponse {
-                res: RequestVoteResponse {
-                    term: 2,
-                    vote_granted: true,
-                }
-            })
-        ));
-
-        assert!(matches!(
-            controller.pass(1, 2).await,
-            Ok(ReqItem::AppendEntriesRequest {
-                req:
-                    AppendEntriesRequest {
-                        term: 2,
-                        prev_log_index: 0,
-                        prev_log_term: 0,
-                        ..
-                    },
-            })
-        ));
-
-        assert!(matches!(
-            controller.pass(1, 3).await,
-            Ok(ReqItem::AppendEntriesRequest {
-                req:
-                    AppendEntriesRequest {
-                        term: 2,
-                        prev_log_index: 0,
-                        prev_log_term: 0,
-                        ..
-                    },
-            })
-        ));
-    }
-
-    #[tokio::test]
-    async fn send_command() {
-        init();
-        let forever = 1000 * 60 * 60 * 24 * 365;
-        let conf1 = Configuration {
-            leader: LeaderConfiguration {
-                wait_append_entries_response_timeout_millis: forever,
-                heartbeat_timeout_millis: forever,
-            },
-            follower: FollowerConfiguration {
-                election_timeout_millis: 0,
-                election_timeout_jitter_millis: 0,
-            },
-            ..Default::default()
-        };
-        let conf2 = Configuration {
-            candidate: CandidateConfiguration {
-                election_timeout_millis: forever,
-                ..Default::default()
-            },
-            follower: FollowerConfiguration {
-                election_timeout_millis: forever,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let conf3 = conf2.clone();
-
-        let group: PartitionedLocalRepcGroup<NoopStateMachine> =
-            PartitionedLocalRepcGroupBuilder::default()
-                .confs(vec![conf1, conf2, conf3])
-                .build();
-        let mut controller = group.spawn();
-
-        controller.pass(1, 2).await;
-        controller.discard(1, 3).await;
-        controller.pass(1, 2).await;
-        controller.pass(1, 2).await;
-
-        assert!(matches!(
-            controller.pass(1, 3).await,
-            Ok(ReqItem::AppendEntriesRequest {
-                req:
-                    AppendEntriesRequest {
-                        term: 2,
-                        prev_log_index: 0,
-                        prev_log_term: 0,
-                        ..
-                    },
-            })
-        ));
     }
 }

@@ -1,4 +1,5 @@
 mod error;
+mod peer;
 
 use crate::raft::message::Message;
 use bytes::buf::Buf;
@@ -63,7 +64,7 @@ impl Decoder for IdentDecoder {
 }
 
 #[derive(Clone)]
-pub(crate) struct RepcService {
+pub struct RepcService {
     inner: RepcInnerService,
 }
 

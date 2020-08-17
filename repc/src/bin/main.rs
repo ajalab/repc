@@ -3,14 +3,19 @@ use clap::{App, Arg};
 use env_logger;
 use repc::configuration::{Configuration, NodeConfiguration};
 use repc::group::grpc::GrpcRepcGroup;
-use repc::StateMachine;
+use repc::state_machine::{StateMachine, StateMachineError};
 use std::net::Ipv6Addr;
 
 struct Logger {}
 
 impl StateMachine for Logger {
-    fn apply<P: AsRef<str>>(&mut self, path: P, command: Bytes) {
+    fn apply<P: AsRef<str>>(
+        &mut self,
+        path: P,
+        _command: Bytes,
+    ) -> Result<Bytes, StateMachineError> {
         log::debug!("{}", path.as_ref());
+        Ok(Bytes::new())
     }
 }
 
