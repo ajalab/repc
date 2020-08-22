@@ -6,6 +6,7 @@ use bytes::buf::Buf;
 use bytes::Bytes;
 use error::RepcServiceError;
 use futures_util::{TryFutureExt, TryStreamExt};
+use http::response::Parts;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -96,7 +97,16 @@ impl RepcService {
         // TODO: merge trailers
 
         // TODO: convert tonic::Response to http::Response
-        let _ = inner.handle(req).await?;
+        let result = inner.handle(req).await;
+        result
+            .map(|mut res| {
+                let mut http_res = http::Response::new(BoxBody::empty());
+                let metadata = std::mem::take(res.metadata_mut());
+                *http_res.headers_mut() = metadata.into_headers();
+                // *http_res.body_mut() = BoxBody::new(res.into_inner());
+                http_res
+            })
+            .unwrap_or_else(|e| e.into_http());
         Ok(http::Response::new(BoxBody::empty()))
     }
 }

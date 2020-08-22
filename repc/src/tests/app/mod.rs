@@ -36,12 +36,12 @@ where
     fn apply<P: AsRef<str>>(
         &mut self,
         path: P,
-        _command: Bytes,
+        command: Bytes,
     ) -> Result<Bytes, StateMachineError> {
         let path = path.as_ref();
         match path {
             "/incr.Incr/Incr" => {
-                let req = IncrRequest::decode(_command)
+                let req = IncrRequest::decode(command)
                     .map_err(|e| StateMachineError::DecodeRequestFailed(e))?;
                 let res = self
                     .server
