@@ -144,6 +144,14 @@ impl Follower {
         //   req.term <= self.term
 
         if req.term != self.term {
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = req.leader_id,
+                "refuse AppendEntry request from {}: invalid term {}",
+                req.leader_id,
+                req.term,
+            );
             return Ok(pb::AppendEntriesResponse {
                 term: self.term,
                 success: false,
@@ -159,6 +167,15 @@ impl Follower {
             let prev_log_term = prev_log_entry.map(|e| e.term());
 
             if prev_log_term != Some(req.prev_log_term) {
+                tracing::debug!(
+                    id = self.id,
+                    term = self.term,
+                    target_id = req.leader_id,
+                    "refuse AppendEntry request from {}: previous log term of the request ({}) doesn't match the actual term ({})",
+                    req.leader_id,
+                    req.prev_log_term,
+                    prev_log_term.unwrap_or(0),
+                );
                 return Ok(pb::AppendEntriesResponse {
                     term: self.term,
                     success: false,
@@ -190,10 +207,25 @@ impl Follower {
                 .skip(i as usize)
                 .map(|e: pb::LogEntry| LogEntry::new(e.term, e.command.into())),
         );
+        tracing::trace!(
+            id = self.id,
+            term = self.term,
+            target_id = req.leader_id,
+            "append entries replicated from {}",
+            req.leader_id,
+        );
 
         // commit log
         let last_committed_index = log.last_committed();
-        log.commit(cmp::min(req.last_committed_index, last_committed_index));
+        let commit_index = cmp::min(req.last_committed_index, last_committed_index);
+        log.commit(commit_index);
+        tracing::trace!(
+            id = self.id,
+            term = self.term,
+            target_id = req.leader_id,
+            "commit log at index {}",
+            commit_index,
+        );
 
         if let Err(e) = self.reset_deadline().await {
             tracing::warn!(
