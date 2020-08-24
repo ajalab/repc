@@ -1,6 +1,5 @@
 pub mod codec;
 mod error;
-mod peer;
 
 use crate::raft::message::Message;
 use bytes::Bytes;
