@@ -3,10 +3,8 @@ use crate::raft::node::Node;
 use crate::raft::pb::raft_server::RaftServer;
 use crate::raft::peer::grpc::RaftGrpcPeer;
 use crate::raft::service::RaftService;
-use crate::service::RepcService;
 use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
-use log::info;
 use std::collections::HashMap;
 use std::error;
 use std::net::SocketAddr;
@@ -41,7 +39,7 @@ where
         let raft_addr = SocketAddr::new(node_conf.ip, node_conf.raft_port);
         let raft_service = RaftService::new(node.get_tx());
         let raft_server = Server::builder().add_service(RaftServer::new(raft_service));
-        info!("start serving gRPC Raft service on {}", raft_addr);
+        tracing::info!("start serving gRPC Raft service on {}", raft_addr);
         tokio::spawn(raft_server.serve(raft_addr));
 
         // start rpc server

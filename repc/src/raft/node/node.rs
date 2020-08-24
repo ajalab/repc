@@ -11,7 +11,6 @@ use crate::raft::peer::RaftPeer;
 use crate::state_machine::StateMachineManager;
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
-use log::{debug, info, trace, warn};
 use std::collections::HashMap;
 use std::error;
 use std::sync::Arc;
@@ -123,9 +122,13 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
     // if the term of the request is newer than the node's current term.
     fn update_term(&mut self, req_id: NodeId, req_term: Term) {
         if req_term > self.term {
-            debug!(
-                "id={}, term={}, message=\"receive a request from {} which has higher term: {}\"",
-                self.id, self.term, req_id, req_term,
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = req_id,
+                "receive a request from {} which has higher term: {}",
+                req_id,
+                req_term,
             );
             self.term = req_term;
             self.trans_state_follower();
@@ -140,11 +143,18 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
         self.update_term(req.candidate_id, req.term);
         let res = self.node.handle_request_vote_request(req).await;
 
+        let id = self.id;
+        let term = self.term;
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
             if let Err(e) = r {
-                warn!("{}", e);
+                tracing::warn!(
+                    id,
+                    term,
+                    "failed to send a callback for RequestVoteRequest: {}",
+                    e
+                );
             }
         });
     }
@@ -163,11 +173,18 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
         self.update_term(req.leader_id, req.term);
         let res = self.node.handle_append_entries_request(req).await;
 
+        let id = self.id;
+        let term = self.term;
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
             if let Err(e) = r {
-                warn!("{}", e);
+                tracing::warn!(
+                    id,
+                    term,
+                    "failed to send a callback for RequestVoteRequest: {}",
+                    e
+                );
             }
         });
     }
@@ -185,24 +202,12 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
         command: Bytes,
         tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
-        trace!(
-            "id={}, term={}, state={}, message=\"{}\"",
-            self.id,
-            self.term,
-            self.node.to_ident(),
-            "received a command"
-        );
+        tracing::trace!(id = self.id, term = self.term, "received a command");
         self.node.handle_command(command, tx).await;
     }
 
     fn trans_state_follower(&mut self) {
-        info!(
-            "id={}, term={}, state={}, message=\"{}\"",
-            self.id,
-            self.term,
-            self.node.to_ident(),
-            "become a follower."
-        );
+        tracing::info!(id = self.id, term = self.term, "become a follower");
 
         self.node = State::Follower {
             follower: follower::Follower::spawn(
@@ -217,13 +222,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
     }
 
     fn trans_state_candidate(&mut self) {
-        info!(
-            "id={}, term={}, state={}, message=\"{}\"",
-            self.id,
-            self.term,
-            self.node.to_ident(),
-            "become a candidate."
-        );
+        tracing::info!(id = self.id, term = self.term, "become a candidate");
 
         let quorum = (self.peers.len() + 1) / 2;
         self.node = State::Candidate {
@@ -239,13 +238,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
     }
 
     fn trans_state_leader(&mut self) {
-        info!(
-            "id={}, term={}, state={}, message=\"{}\"",
-            self.id,
-            self.term,
-            self.node.to_ident(),
-            "become a leader."
-        );
+        tracing::info!(id = self.id, term = self.term, "become a leader");
 
         self.node = State::Leader {
             leader: leader::Leader::spawn(

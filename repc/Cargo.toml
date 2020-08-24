@@ -15,12 +15,12 @@ http-body = "0.3"
 tokio = { version = "0.2", features = ["macros", "time", "sync", "stream"] }
 tower-service = { version = "0.3" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
-futures-retry = "0.4.0"
-futures-util = { version = "0.3" }
-log = "0.4"
-env_logger = "0.7"
+tracing = "0.1"
 clap = "2.33"
 rand = "0.7"
+
+[dev-dependencies]
+tracing-subscriber = "0.2"
 
 [build-dependencies]
 tonic-build = "0.3"

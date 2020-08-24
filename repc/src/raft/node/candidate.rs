@@ -5,7 +5,6 @@ use crate::raft::message::Message;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
 use crate::types::{NodeId, Term};
-use log::{debug, info, warn};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -37,16 +36,15 @@ impl Candidate {
         let mut tx_dc = tx.clone();
 
         let deadline_clock = DeadlineClock::spawn(timeout_millis, async move {
-            if let Err(e) = tx_dc.send(Message::ElectionTimeout).await {
-                warn!(
-                    "id={}, term={}, state={}, message=\"{}: {}\"",
-                    id, term, "candidate", "failed to send message ElectionTimeout", e
+            if let Err(_) = tx_dc.send(Message::ElectionTimeout).await {
+                tracing::warn!(
+                    id,
+                    term,
+                    state = "candidate",
+                    "failed to send ElectionTimeout message"
                 );
             }
-            debug!(
-                "id={}, term={}, state={}, message=\"{}\"",
-                id, term, "candidate", "start re-election"
-            );
+            tracing::debug!(id, term, state = "candidate", "start re-election");
         });
 
         let mut votes = HashSet::new();
@@ -69,38 +67,53 @@ impl Candidate {
         id: NodeId,
     ) -> bool {
         if self.term != res.term {
-            debug!(
-                    "id={}, term={}, message=\"ignored vote from {}, which belongs to the different term: {}\"",
-                    self.id, self.term, id, res.term,
-                );
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = id,
+                "ignored vote from {}, which belongs to the different term: {}",
+                id,
+                res.term,
+            );
             return false;
         }
 
         if !res.vote_granted {
-            debug!(
-                "id={}, term={}, message=\"vote requested to {} is refused\"",
-                self.id, self.term, id,
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = id,
+                "vote requested to {} is refused",
+                id,
             );
             return false;
         }
 
         if !self.votes.insert(id) {
-            debug!(
-                    "id={}, term={}, message=\"received vote from {}, which already granted my vote in the current term\"",
-                    self.id, self.term, id,
-                );
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = id,
+                "received vote from {}, which already granted my vote in the current term",
+                id,
+            );
             return false;
         }
 
-        debug!(
-            "id={}, term={}, message=\"received vote from {}\"",
-            self.id, self.term, id
+        tracing::debug!(
+            id = self.id,
+            term = self.term,
+            target_id = id,
+            "received vote from {}",
+            id,
         );
 
         if self.votes.len() > self.quorum {
-            info!(
-                "id={}, term={}, message=\"get a majority of votes from {:?}\"",
-                self.id, self.term, self.votes,
+            tracing::info!(
+                id = self.id,
+                term = self.term,
+                "get a majority of votes from {:?}",
+                self.votes,
             );
             return true;
         }
@@ -120,9 +133,12 @@ impl Candidate {
             let term = self.term;
             let candidate_id = self.id;
             tokio::spawn(async move {
-                debug!(
-                    "id={}, term={}, message=\"sending RequestVoteRequest to {}\"",
-                    candidate_id, term, id
+                tracing::debug!(
+                    id = candidate_id,
+                    term,
+                    target_id = id,
+                    "sending RequestVoteRequest to {}",
+                    id,
                 );
                 let res = peer
                     .request_vote(pb::RequestVoteRequest {
@@ -137,11 +153,23 @@ impl Candidate {
                     Ok(res) => {
                         let r = tx.send(Message::RPCRequestVoteResponse { res, id }).await;
                         if let Err(e) = r {
-                            warn!("failed to send message: {}", e);
+                            tracing::error!(
+                                id = candidate_id,
+                                term,
+                                target_id = id,
+                                "failed to send message: {}",
+                                e
+                            );
                         }
                     }
                     Err(e) => {
-                        warn!("request vote rpc failed: {}", e);
+                        tracing::error!(
+                            id = candidate_id,
+                            term,
+                            target_id = id,
+                            "request vote rpc failed: {}",
+                            e
+                        );
                     }
                 }
             });

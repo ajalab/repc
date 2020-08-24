@@ -45,10 +45,11 @@ impl Leader {
         let appenders = peers
             .iter()
             .map(|(&target_id, peer)| {
-                log::debug!(
-                    "type=\"leader\", id={}, term={}, spawn a new appender<{}>",
+                tracing::debug!(
                     id,
                     term,
+                    target_id,
+                    "spawn a new appender for {}",
                     target_id
                 );
                 Appender::spawn(
@@ -85,10 +86,10 @@ impl Leader {
             log.last_index()
         };
 
-        log::trace!(
-            "type=\"leader\", id={}, term={}, message=\"wrote a command at log index {}\"",
-            self.id,
-            self.term,
+        tracing::trace!(
+            id = self.id,
+            term = self.term,
+            "wrote a command at log index {}",
             index
         );
 
@@ -143,7 +144,14 @@ impl Appender {
 
         // Notify to appender beforehand to send heartbeat immediately
         if let Err(e) = appender.try_notify() {
-            log::warn!("{}", e);
+            tracing::warn!(
+                id,
+                term,
+                target_id,
+                "failed to notify appender[{}]: {}",
+                target_id,
+                e
+            );
         }
 
         tokio::spawn(process.run());
@@ -168,11 +176,11 @@ struct AppenderProcess<P: RaftPeer> {
 
 impl<P: RaftPeer> AppenderProcess<P> {
     async fn run(mut self) {
-        log::debug!(
-            "type=\"appender\", id={}, term={}, target_id={}, message=\"start appender process\"",
-            self.id,
-            self.term,
-            self.target_id
+        tracing::debug!(
+            id = self.id,
+            term = self.term,
+            target_id = self.target_id,
+            "start appender process",
         );
 
         let mut next_index = {
@@ -184,9 +192,11 @@ impl<P: RaftPeer> AppenderProcess<P> {
         let mut match_index = 0;
 
         loop {
-            log::debug!(
-                "type=\"appender\", id={}, term={}, target_id={}, message=\"wait for heartbeat timeout or notification\"",
-                self.id, self.term, self.target_id,
+            tracing::trace!(
+                id = self.id,
+                term = self.term,
+                target_id = self.target_id,
+                "wait for heartbeat timeout or notification",
             );
             let wait = time::timeout(
                 Duration::from_millis(self.conf.heartbeat_timeout_millis),
@@ -196,15 +206,19 @@ impl<P: RaftPeer> AppenderProcess<P> {
             match wait {
                 Ok(None) => break,
                 Ok(Some(_)) => {
-                    log::trace!(
-                        "type=\"appender\", id={}, term={}, target_id={}, message=\"notified to send new commands\"",
-                        self.id, self.term, self.target_id,
+                    tracing::trace!(
+                        id = self.id,
+                        term = self.term,
+                        target_id = self.target_id,
+                        "notified to send new commands or initial heartbeat",
                     );
                 }
                 Err(_) => {
-                    log::trace!(
-                        "type=\"appender\", id={}, term={}, target_id={}, message=\"timeout. send heartbeat\"",
-                        self.id, self.term, self.target_id,
+                    tracing::trace!(
+                        id = self.id,
+                        term = self.term,
+                        target_id = self.target_id,
+                        "timeout. send heartbeat",
                     );
                 }
             }
@@ -215,7 +229,12 @@ impl<P: RaftPeer> AppenderProcess<P> {
             let log = match self.log.upgrade() {
                 Some(log) => log,
                 None => {
-                    log::debug!("old");
+                    tracing::info!(
+                        id = self.id,
+                        term = self.term,
+                        target_id = self.target_id,
+                        "can't read a log. likely not being a leader anymore",
+                    );
                     break;
                 }
             };
@@ -251,7 +270,13 @@ impl<P: RaftPeer> AppenderProcess<P> {
                         .notify_replicated(self.target_id, match_index)
                         .await
                     {
-                        log::warn!("match_index update is not reported to CommitManager: {}", e);
+                        tracing::warn!(
+                            id = self.id,
+                            term = self.term,
+                            target_id = self.target_id,
+                            "match_index update is not reported to CommitManager: {}",
+                            e
+                        );
                     }
                 }
             }
@@ -320,7 +345,7 @@ impl CommitManagerSubscription {
                     Ok(applied) if applied.index >= index => Some(Ok(applied.res)),
                     Err(broadcast::RecvError::Closed) => Some(Err(CommandError::NotLeader)),
                     Err(broadcast::RecvError::Lagged(n)) => {
-                        log::warn!("commit notification is lagging: {}", n);
+                        tracing::warn!("commit notification is lagging: {}", n);
                         None
                     }
                     _ => None,
@@ -387,7 +412,8 @@ impl CommitManagerProcess {
                 let log = match self.log.upgrade() {
                     Some(log) => log,
                     None => {
-                        log::warn!("failed to acquire strong log reference");
+                        tracing::info!(
+                            "failed to acquire strong log reference; likely not being a leader anymore");
                         break;
                     }
                 };
@@ -398,7 +424,7 @@ impl CommitManagerProcess {
                     let mut res = match self.sm_manager.apply(command).await {
                         Ok(res) => res,
                         Err(e) => {
-                            log::warn!("failed to apply command to the state machine: {}", e);
+                            tracing::error!("failed to apply command to the state machine: {}", e);
                             break;
                         }
                     };
@@ -409,7 +435,7 @@ impl CommitManagerProcess {
                         metadata,
                     };
                     if let Err(_) = self.tx_applied.send(applied) {
-                        log::info!("leader process has been terminated");
+                        tracing::info!("leader process has been terminated");
                         break;
                     }
                     committed += 1;

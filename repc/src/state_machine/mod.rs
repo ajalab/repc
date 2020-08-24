@@ -71,12 +71,12 @@ where
             let res = match self.state_machine.apply("path", command.command) {
                 Ok(res) => res,
                 Err(e) => {
-                    log::warn!("failed to apply: {}", e);
+                    tracing::error!("failed to apply: {}", e);
                     break;
                 }
             };
             if let Err(_) = command.callback.send(res) {
-                log::warn!("couldn't notify the command sender of the application completion");
+                tracing::warn!("couldn't notify the command sender of the application completion");
             }
         }
     }

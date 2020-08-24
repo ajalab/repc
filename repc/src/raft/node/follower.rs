@@ -5,7 +5,6 @@ use crate::raft::message::Message;
 use crate::raft::pb;
 use crate::state_machine::StateMachineManager;
 use crate::types::{NodeId, Term};
-use log::{debug, warn};
 use rand::Rng;
 use std::cmp;
 use std::error;
@@ -47,14 +46,12 @@ impl Follower {
             + rng.gen_range(0, conf.follower.election_timeout_jitter_millis + 1);
 
         let deadline_clock = DeadlineClock::spawn(timeout_millis, async move {
-            if let Err(e) = tx.send(Message::ElectionTimeout).await {
-                log::warn!(
-                    "id={}, term={}, state={}, message=\"{}: {}\"",
+            if let Err(_) = tx.send(Message::ElectionTimeout).await {
+                tracing::warn!(
                     id,
                     term,
-                    "follower",
+                    state = "follower",
                     "failed to send message ElectionTimeout",
-                    e
                 );
             }
         });
@@ -97,24 +94,38 @@ impl Follower {
         }
 
         if vote_granted {
-            debug!(
-                "id={}, term={}, message=\"granted vote from {}\"",
-                self.id, self.term, req.candidate_id
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = req.candidate_id,
+                "granted vote from {}",
+                req.candidate_id,
             );
         } else if !valid_term {
-            debug!(
-                "id={}, term={}, message=\"refused vote from {} because the request has invalid term: {}\"",
-                self.id, self.term, req.candidate_id, req.term,
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = req.candidate_id,
+                "refused vote from {} because the request has invalid term: {}",
+                req.candidate_id,
+                req.term,
             );
         } else if !valid_candidate {
-            debug!(
-                "id={}, term={}, message=\"refused vote from {} because we have voted to another: {:?}\"",
-                self.id, self.term, req.candidate_id, self.voted_for,
+            tracing::debug!(
+                id = self.id,
+                term = self.term,
+                target_id = req.candidate_id,
+                "refused vote from {} because we have voted to another: {:?}",
+                req.candidate_id,
+                self.voted_for,
             );
         } else {
-            debug!(
-                "id={}, term={}, message=\"refused vote from {} because the request has outdated last log term & index: ({}, {})\"",
-                self.id, self.term, req.candidate_id,
+            tracing::debug!(
+                id=self.id,
+                term=self.term,
+                target_id = req.candidate_id,
+                "refused vote from {} because the request has outdated last log term & index: ({}, {})",
+                req.candidate_id,
                 req.last_log_term, req.last_log_index,
             );
         }
@@ -185,7 +196,12 @@ impl Follower {
         log.commit(cmp::min(req.last_committed_index, last_committed_index));
 
         if let Err(e) = self.reset_deadline().await {
-            warn!("failed to reset deadline: {}", e);
+            tracing::warn!(
+                id = self.id,
+                term = self.term,
+                "failed to reset deadline: {}",
+                e
+            );
         };
 
         Ok(pb::AppendEntriesResponse {

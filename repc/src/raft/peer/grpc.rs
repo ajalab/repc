@@ -4,7 +4,6 @@ use crate::raft::pb::{
     raft_client, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
 };
-use log::warn;
 use std::error;
 use tokio::time::{timeout, Duration};
 
@@ -38,9 +37,11 @@ impl RaftGrpcPeer {
                 Err(e) => e.into(),
             };
 
-            warn!(
+            tracing::warn!(
                 "attempt to connect to {} failed: {}. retry in {} ms.",
-                &addr, e, CONNECTION_RETRY_INTERVAL_MILLIS
+                &addr,
+                e,
+                CONNECTION_RETRY_INTERVAL_MILLIS
             );
 
             tokio::time::delay_for(Duration::from_millis(CONNECTION_RETRY_INTERVAL_MILLIS)).await;
