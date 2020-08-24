@@ -1,9 +1,7 @@
 use crate::configuration::Configuration;
 use crate::raft::node::Node;
 use crate::raft::peer::error::PeerError;
-use crate::raft::peer::partitioned::{
-    self, RaftPartitionedPeer, RaftPartitionedPeerController, Request,
-};
+use crate::raft::peer::partitioned::{self, RaftPartitionedPeer, RaftPartitionedPeerController};
 use crate::raft::peer::service::RaftServicePeer;
 use crate::raft::peer::RaftPeer;
 use crate::raft::service::RaftService;
@@ -161,9 +159,18 @@ where
         &mut self,
         i: NodeId,
         j: NodeId,
-        verifier: impl Fn(Request) -> () + Send + Sync + 'static,
+        verifier: impl Fn(partitioned::Request) -> () + Send + Sync + 'static,
     ) {
         self.peer(i, j).pass_next_request(verifier).await;
+    }
+
+    pub async fn pass_next_response(
+        &mut self,
+        i: NodeId,
+        j: NodeId,
+        verifier: impl Fn(partitioned::Response) -> () + Send + Sync + 'static,
+    ) {
+        self.peer(j, i).pass_next_response(verifier).await;
     }
 
     pub async fn unary<T1, T2>(

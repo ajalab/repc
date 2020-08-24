@@ -2,8 +2,7 @@ use super::app::{IncrRequest, IncrResponse, IncrState};
 use super::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
-use crate::raft::pb::AppendEntriesRequest;
-use crate::raft::peer::partitioned::Request;
+use crate::raft::pb::{AppendEntriesRequest, AppendEntriesResponse};
 
 #[tokio::test]
 async fn send_command() {
@@ -53,12 +52,34 @@ async fn send_command() {
     // Send a command to node 1
     controller
         .pass_next_request(1, 2, |req| {
-            assert!(matches!(req, Request::AppendEntriesRequest(..)))
+            assert!(matches!(
+                req.unwrap_append_entries(),
+                AppendEntriesRequest { .. }
+            ))
+        })
+        .await;
+    controller
+        .pass_next_response(2, 1, |res| {
+            assert!(matches!(
+                res.unwrap_append_entries(),
+                AppendEntriesResponse { .. }
+            ))
         })
         .await;
     controller
         .pass_next_request(1, 3, |req| {
-            assert!(matches!(req, Request::AppendEntriesRequest(..)))
+            assert!(matches!(
+                req.unwrap_append_entries(),
+                AppendEntriesRequest { .. }
+            ))
+        })
+        .await;
+    controller
+        .pass_next_response(3, 1, |res| {
+            assert!(matches!(
+                res.unwrap_append_entries(),
+                AppendEntriesResponse { .. }
+            ))
         })
         .await;
     let res: Result<tonic::Response<IncrResponse>, tonic::Status> =
