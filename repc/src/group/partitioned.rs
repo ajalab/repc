@@ -1,7 +1,9 @@
 use crate::configuration::Configuration;
 use crate::raft::node::Node;
 use crate::raft::peer::error::PeerError;
-use crate::raft::peer::partitioned::{self, RaftPartitionedPeer, RaftPartitionedPeerController};
+use crate::raft::peer::partitioned::{
+    self, RaftPartitionedPeer, RaftPartitionedPeerController, Request,
+};
 use crate::raft::peer::service::RaftServicePeer;
 use crate::raft::peer::RaftPeer;
 use crate::raft::service::RaftService;
@@ -58,7 +60,7 @@ where
             .into_iter()
             .map(|state_machine| StateMachineManager::spawn(state_machine))
             .collect::<Vec<_>>();
-        let nodes: Vec<Node<RaftPartitionedPeer>> = self
+        let nodes: Vec<Node<RaftPartitionedPeer<_>>> = self
             .confs
             .into_iter()
             .zip(sm_managers.into_iter())
@@ -119,28 +121,49 @@ where
     S: RepcService + Service<http::Request<BoxBody>>,
     P: RaftPeer + Send + Sync,
 {
-    pub async fn pass(&mut self, i: NodeId, j: NodeId) -> Result<partitioned::ReqItem, PeerError> {
-        self.controllers
-            .get_mut(&i)
-            .unwrap()
-            .get_mut(&j)
-            .unwrap()
-            .pass()
-            .await
+    fn peer(&mut self, i: NodeId, j: NodeId) -> &mut RaftPartitionedPeerController<P> {
+        self.controllers.get_mut(&i).unwrap().get_mut(&j).unwrap()
     }
 
-    pub async fn discard(
+    pub async fn pass_request(
         &mut self,
         i: NodeId,
         j: NodeId,
-    ) -> Result<partitioned::ReqItem, PeerError> {
-        self.controllers
-            .get_mut(&i)
-            .unwrap()
-            .get_mut(&j)
-            .unwrap()
-            .discard()
-            .await
+    ) -> Result<partitioned::Request, PeerError> {
+        self.peer(i, j).pass_request().await
+    }
+
+    pub async fn pass_response(
+        &mut self,
+        i: NodeId,
+        j: NodeId,
+    ) -> Result<partitioned::Response, PeerError> {
+        self.peer(j, i).pass_response().await
+    }
+
+    pub async fn discard_request(
+        &mut self,
+        i: NodeId,
+        j: NodeId,
+    ) -> Result<partitioned::Request, PeerError> {
+        self.peer(i, j).discard_request().await
+    }
+
+    pub async fn discard_response(
+        &mut self,
+        i: NodeId,
+        j: NodeId,
+    ) -> Result<partitioned::Response, PeerError> {
+        self.peer(j, i).discard_response().await
+    }
+
+    pub async fn pass_next_request(
+        &mut self,
+        i: NodeId,
+        j: NodeId,
+        verifier: impl Fn(Request) -> () + Send + Sync + 'static,
+    ) {
+        self.peer(i, j).pass_next_request(verifier).await;
     }
 
     pub async fn unary<T1, T2>(

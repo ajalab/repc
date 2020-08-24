@@ -1,9 +1,9 @@
-use super::app::{Incr, IncrState};
+use super::app::IncrState;
 use super::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
 use crate::raft::pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
-use crate::raft::peer::partitioned::ReqItem;
+use crate::raft::peer::partitioned::{Request, Response};
 
 #[tokio::test]
 async fn initial_election() {
@@ -40,62 +40,58 @@ async fn initial_election() {
     let mut controller = group.spawn();
 
     assert!(matches!(
-        controller.pass(1, 2).await,
-        Ok(ReqItem::RequestVoteRequest {
-            req:
-                RequestVoteRequest {
-                    term: 2,
-                    last_log_index: 0,
-                    ..
-                },
-        })
+        controller.pass_request(1, 2).await,
+        Ok(Request::RequestVoteRequest(
+            RequestVoteRequest {
+                term: 2,
+                last_log_index: 0,
+                ..
+            }
+        ))
     ));
 
     assert!(matches!(
-        controller.discard(1, 3).await,
-        Ok(ReqItem::RequestVoteRequest {
-            req:
-                RequestVoteRequest {
-                    term: 2,
-                    last_log_index: 0,
-                    ..
-                },
-        })
+        controller.discard_request(1, 3).await,
+        Ok(Request::RequestVoteRequest(
+            RequestVoteRequest {
+                term: 2,
+                last_log_index: 0,
+                ..
+            }
+        ))
     ));
 
-    assert!(matches!(
-        controller.pass(1, 2).await,
-        Ok(ReqItem::RequestVoteResponse {
-            res: RequestVoteResponse {
+    assert!(
+        matches!(
+            controller.pass_response(2, 1).await,
+            Ok(Response::RequestVoteResponse(RequestVoteResponse {
                 term: 2,
                 vote_granted: true,
-            }
-        })
+            }))
+        )
+    );
+
+    assert!(matches!(
+        controller.pass_request(1, 2).await,
+        Ok(Request::AppendEntriesRequest (
+            AppendEntriesRequest {
+                term: 2,
+                prev_log_index: 0,
+                prev_log_term: 0,
+                ..
+            },
+        ))
     ));
 
     assert!(matches!(
-        controller.pass(1, 2).await,
-        Ok(ReqItem::AppendEntriesRequest {
-            req:
-                AppendEntriesRequest {
-                    term: 2,
-                    prev_log_index: 0,
-                    prev_log_term: 0,
-                    ..
-                },
-        })
-    ));
-
-    assert!(matches!(
-        controller.pass(1, 3).await,
-        Ok(ReqItem::AppendEntriesRequest {
-            req:
-                AppendEntriesRequest {
-                    term: 2,
-                    prev_log_index: 0,
-                    prev_log_term: 0,
-                    ..
-                },
-        })
+        controller.pass_request(1, 3).await,
+        Ok(Request::AppendEntriesRequest (
+            AppendEntriesRequest {
+                term: 2,
+                prev_log_index: 0,
+                prev_log_term: 0,
+                ..
+            },
+        ))
     ));
 }

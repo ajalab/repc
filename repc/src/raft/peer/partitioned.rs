@@ -3,110 +3,181 @@ use super::RaftPeer;
 use crate::raft::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio::sync::{mpsc, oneshot};
 
-pub fn peer<P: RaftPeer + Send + Sync>(
+pub fn peer<P: RaftPeer + Send + Sync + Clone>(
     inner: P,
     queue_size: usize,
-) -> (RaftPartitionedPeer, RaftPartitionedPeerController<P>) {
-    let (tx, rx) = mpsc::channel(queue_size);
-    let peer = RaftPartitionedPeer { tx: tx.clone() };
-    let controller = RaftPartitionedPeerController { inner, tx, rx };
+) -> (RaftPartitionedPeer<P>, RaftPartitionedPeerController<P>) {
+    let (req_queue_tx, req_queue_rx) = mpsc::channel(queue_size);
+    let (res_queue_tx, res_queue_rx) = mpsc::channel(queue_size);
+    let req_verifier: Arc<RwLock<_>> = Arc::default();
+    let peer = RaftPartitionedPeer {
+        inner: inner.clone(),
+        req_queue_tx: req_queue_tx.clone(),
+        res_queue_tx: res_queue_tx.clone(),
+        req_verifier: req_verifier.clone(),
+    };
+    let controller = RaftPartitionedPeerController {
+        inner,
+        req_queue_rx,
+        res_queue_tx,
+        res_queue_rx,
+        req_verifier,
+    };
 
     (peer, controller)
 }
 
 #[derive(Debug, Clone)]
-pub enum ReqItem {
-    RequestVoteRequest { req: RequestVoteRequest },
-    RequestVoteResponse { res: RequestVoteResponse },
-    AppendEntriesRequest { req: AppendEntriesRequest },
-    AppendEntriesResponse { res: AppendEntriesResponse },
+pub enum Request {
+    RequestVoteRequest(RequestVoteRequest),
+    AppendEntriesRequest(AppendEntriesRequest),
 }
 
-struct ReqItemWithCallback {
-    item: ReqItem,
-    tx: mpsc::Sender<ReqItem>,
+struct RequestWithCallback {
+    req: Request,
+    callback_tx: oneshot::Sender<Response>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Response {
+    RequestVoteResponse(RequestVoteResponse),
+    AppendEntriesResponse(AppendEntriesResponse),
+}
+
+struct ResponseWithCallback {
+    res: Response,
+    callback_tx: oneshot::Sender<Response>,
 }
 
 #[derive(Clone)]
-pub struct RaftPartitionedPeer {
-    tx: mpsc::Sender<ReqItemWithCallback>,
+pub struct RaftPartitionedPeer<P> {
+    inner: P,
+    req_queue_tx: mpsc::Sender<RequestWithCallback>,
+    res_queue_tx: mpsc::Sender<ResponseWithCallback>,
+    req_verifier: Arc<RwLock<Option<Box<dyn Fn(Request) -> () + Send + Sync>>>>,
 }
 
 pub struct RaftPartitionedPeerController<P> {
     inner: P,
-    tx: mpsc::Sender<ReqItemWithCallback>,
-    rx: mpsc::Receiver<ReqItemWithCallback>,
+    req_queue_rx: mpsc::Receiver<RequestWithCallback>,
+    res_queue_tx: mpsc::Sender<ResponseWithCallback>,
+    res_queue_rx: mpsc::Receiver<ResponseWithCallback>,
+    req_verifier: Arc<RwLock<Option<Box<dyn Fn(Request) -> () + Send + Sync>>>>,
 }
 
 impl<P: RaftPeer + Send + Sync> RaftPartitionedPeerController<P> {
-    pub async fn pass(&mut self) -> Result<ReqItem, PeerError> {
-        let ReqItemWithCallback { item, mut tx } = self.rx.recv().await.unwrap();
-        tracing::trace!("pass item: {:?}", item);
-        match item.clone() {
-            ReqItem::RequestVoteRequest { req } => {
+    pub async fn pass_request(&mut self) -> Result<Request, PeerError> {
+        let RequestWithCallback { req, callback_tx } = self.req_queue_rx.recv().await.unwrap();
+        tracing::trace!("pass request: {:?}", req);
+        match req.clone() {
+            Request::RequestVoteRequest(req) => {
                 let res = self.inner.request_vote(req).await?;
-                let item = ReqItemWithCallback {
-                    item: ReqItem::RequestVoteResponse { res },
-                    tx,
+                let res = ResponseWithCallback {
+                    res: Response::RequestVoteResponse(res),
+                    callback_tx,
                 };
-                self.tx
-                    .send(item)
+                self.res_queue_tx
+                    .send(res)
                     .await
                     .map_err(|e| PeerError::new(e.to_string()))
             }
-            ReqItem::AppendEntriesRequest { req } => {
+            Request::AppendEntriesRequest(req) => {
                 let res = self.inner.append_entries(req).await?;
-                let item = ReqItemWithCallback {
-                    item: ReqItem::AppendEntriesResponse { res },
-                    tx,
+                let res = ResponseWithCallback {
+                    res: Response::AppendEntriesResponse(res),
+                    callback_tx,
                 };
-                self.tx
-                    .send(item)
+                self.res_queue_tx
+                    .send(res)
                     .await
                     .map_err(|e| PeerError::new(e.to_string()))
             }
-            res => tx
-                .send(res)
-                .await
-                .map_err(|e| PeerError::new(e.to_string())),
         }
-        .map(|_| item)
+        .map(|_| req)
     }
 
-    pub async fn discard(&mut self) -> Result<ReqItem, PeerError> {
-        self.rx
+    pub async fn pass_response(&mut self) -> Result<Response, PeerError> {
+        let ResponseWithCallback { res, callback_tx } = self.res_queue_rx.recv().await.unwrap();
+        tracing::trace!("pass response: {:?}", res);
+        callback_tx
+            .send(res.clone())
+            .map_err(|_| PeerError::new("failed to callback".to_owned()))
+            .map(|_| res)
+    }
+
+    pub async fn discard_request(&mut self) -> Result<Request, PeerError> {
+        self.req_queue_rx
             .recv()
             .await
-            .map(|i| {
-                tracing::trace!("discard item: {:?}", i.item);
-                i.item
+            .map(|req| {
+                tracing::trace!("discard request: {:?}", req.req);
+                req.req
             })
             .ok_or_else(|| PeerError::new("queue is closed".to_string()))
+    }
+
+    pub async fn discard_response(&mut self) -> Result<Response, PeerError> {
+        self.res_queue_rx
+            .recv()
+            .await
+            .map(|res| {
+                tracing::trace!("discard response: {:?}", res.res);
+                res.res
+            })
+            .ok_or_else(|| PeerError::new("queue is closed".to_string()))
+    }
+
+    pub async fn pass_next_request(
+        &mut self,
+        verifier: impl Fn(Request) -> () + Send + Sync + 'static,
+    ) {
+        let mut req_verifier = self.req_verifier.write().await;
+        *req_verifier = Some(Box::new(verifier));
+        tracing::trace!("set a request verifier");
     }
 }
 
 #[tonic::async_trait]
-impl RaftPeer for RaftPartitionedPeer {
+impl<P: RaftPeer + Send + Sync> RaftPeer for RaftPartitionedPeer<P> {
     async fn request_vote(
         &mut self,
         req: RequestVoteRequest,
     ) -> Result<RequestVoteResponse, PeerError> {
-        let (tx, mut rx) = mpsc::channel(1);
-        let item = ReqItemWithCallback {
-            item: ReqItem::RequestVoteRequest { req },
-            tx,
-        };
-        self.tx
-            .send(item)
-            .await
-            .map_err(|e| PeerError::new(e.to_string()))?;
+        let (callback_tx, callback_rx) = oneshot::channel();
+        {
+            let mut req_verifier = self.req_verifier.write().await;
+            if let Some(verifier) = req_verifier.take() {
+                let res = self.inner.request_vote(req.clone()).await?;
+                let res = ResponseWithCallback {
+                    res: Response::RequestVoteResponse(res),
+                    callback_tx,
+                };
+                verifier(Request::RequestVoteRequest(req));
+                self.res_queue_tx
+                    .send(res)
+                    .await
+                    .map_err(|e| PeerError::new(e.to_string()))?;
+            } else {
+                tracing::trace!("adding RequestVote request to the queue: {:?}", req);
+                let req = RequestWithCallback {
+                    req: Request::RequestVoteRequest(req),
+                    callback_tx,
+                };
+                self.req_queue_tx
+                    .send(req)
+                    .await
+                    .map_err(|e| PeerError::new(e.to_string()))?;
+            }
+        }
 
-        match rx.recv().await {
-            Some(ReqItem::RequestVoteResponse { res }) => Ok(res),
-            None => Err(PeerError::new("request is discarded".to_owned())),
-            _ => unreachable!(),
+        match callback_rx.await {
+            Ok(Response::RequestVoteResponse(res)) => Ok(res),
+            Ok(_) => unreachable!(),
+            Err(_) => Err(PeerError::new("request is discarded".to_owned())),
         }
     }
 
@@ -114,20 +185,38 @@ impl RaftPeer for RaftPartitionedPeer {
         &mut self,
         req: AppendEntriesRequest,
     ) -> Result<AppendEntriesResponse, PeerError> {
-        let (tx, mut rx) = mpsc::channel(1);
-        let item = ReqItemWithCallback {
-            item: ReqItem::AppendEntriesRequest { req },
-            tx,
-        };
-        self.tx
-            .send(item)
-            .await
-            .map_err(|e| PeerError::new(e.to_string()))?;
+        let (callback_tx, callback_rx) = oneshot::channel();
+        {
+            let mut req_verifier = self.req_verifier.write().await;
+            if let Some(verifier) = req_verifier.take() {
+                tracing::trace!("sending AppendEntries request with verification: {:?}", req);
+                let res = self.inner.append_entries(req.clone()).await?;
+                let res = ResponseWithCallback {
+                    res: Response::AppendEntriesResponse(res),
+                    callback_tx,
+                };
+                verifier(Request::AppendEntriesRequest(req));
+                self.res_queue_tx
+                    .send(res)
+                    .await
+                    .map_err(|e| PeerError::new(e.to_string()))?;
+            } else {
+                tracing::trace!("adding AppendEntries request to the queue: {:?}", req);
+                let req = RequestWithCallback {
+                    req: Request::AppendEntriesRequest(req),
+                    callback_tx,
+                };
+                self.req_queue_tx
+                    .send(req)
+                    .await
+                    .map_err(|e| PeerError::new(e.to_string()))?;
+            }
+        }
 
-        if let Some(ReqItem::AppendEntriesResponse { res }) = rx.recv().await {
-            Ok(res)
-        } else {
-            Err(PeerError::new("invalid response".to_owned()))
+        match callback_rx.await {
+            Ok(Response::AppendEntriesResponse(res)) => Ok(res),
+            Ok(_) => unreachable!(),
+            Err(_) => Err(PeerError::new("request is discarded".to_owned())),
         }
     }
 }
