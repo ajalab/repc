@@ -3,7 +3,7 @@ use super::RaftPeer;
 use crate::raft::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use log::debug;
+use log::{debug, trace};
 use tokio::sync::mpsc;
 
 pub fn peer<P: RaftPeer + Send + Sync>(
@@ -35,7 +35,7 @@ pub struct RaftPartitionedPeer {
     tx: mpsc::Sender<ReqItemWithCallback>,
 }
 
-pub struct RaftPartitionedPeerController<P: RaftPeer + Send + Sync> {
+pub struct RaftPartitionedPeerController<P> {
     inner: P,
     tx: mpsc::Sender<ReqItemWithCallback>,
     rx: mpsc::Receiver<ReqItemWithCallback>,
@@ -44,7 +44,7 @@ pub struct RaftPartitionedPeerController<P: RaftPeer + Send + Sync> {
 impl<P: RaftPeer + Send + Sync> RaftPartitionedPeerController<P> {
     pub async fn pass(&mut self) -> Result<ReqItem, PeerError> {
         let ReqItemWithCallback { item, mut tx } = self.rx.recv().await.unwrap();
-        debug!("pass item: {:?}", item);
+        trace!("pass item: {:?}", item);
         match item.clone() {
             ReqItem::RequestVoteRequest { req } => {
                 let res = self.inner.request_vote(req).await?;

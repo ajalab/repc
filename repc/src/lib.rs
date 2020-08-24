@@ -1,3 +1,4 @@
+pub mod codegen;
 pub mod configuration;
 pub mod group;
 mod raft;

@@ -30,7 +30,7 @@ pub enum Message {
 
     Command {
         body: Bytes,
-        tx: oneshot::Sender<Result<(), CommandError>>,
+        tx: oneshot::Sender<Result<Bytes, CommandError>>,
     },
 
     ElectionTimeout,

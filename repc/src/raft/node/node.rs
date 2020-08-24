@@ -11,7 +11,7 @@ use crate::raft::peer::RaftPeer;
 use crate::state_machine::StateMachineManager;
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
-use log::{debug, info, warn};
+use log::{debug, info, trace, warn};
 use std::collections::HashMap;
 use std::error;
 use std::sync::Arc;
@@ -183,8 +183,15 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
     async fn handle_command(
         &mut self,
         command: Bytes,
-        tx: oneshot::Sender<Result<(), CommandError>>,
+        tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
+        trace!(
+            "id={}, term={}, state={}, message=\"{}\"",
+            self.id,
+            self.term,
+            self.node.to_ident(),
+            "received a command"
+        );
         self.node.handle_command(command, tx).await;
     }
 

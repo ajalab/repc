@@ -1,5 +1,6 @@
 use std::error;
 use std::fmt;
+use tonic::Status;
 
 #[derive(Debug)]
 pub enum CommandError {
@@ -12,6 +13,14 @@ impl fmt::Display for CommandError {
         match self {
             CommandError::InvalidArgument => write!(f, "request has an invalid argument"),
             CommandError::NotLeader => write!(f, "not a leader in the current term"),
+        }
+    }
+}
+
+impl CommandError {
+    pub fn into_status(self) -> Status {
+        match self {
+            _ => Status::internal(self.to_string()),
         }
     }
 }

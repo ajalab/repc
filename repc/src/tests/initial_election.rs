@@ -1,4 +1,4 @@
-use super::app::{IncrServer, IncrStateMachine};
+use super::app::{Incr, IncrState};
 use super::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
@@ -35,7 +35,7 @@ async fn initial_election() {
 
     let group = PartitionedLocalRepcGroupBuilder::default()
         .confs(vec![conf1, conf2, conf3])
-        .state_machines(vec![IncrStateMachine::<IncrServer>::default(); 3])
+        .initial_states(vec![IncrState::default(); 3])
         .build();
     let mut controller = group.spawn();
 

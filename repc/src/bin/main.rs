@@ -1,3 +1,4 @@
+/*
 use bytes::Bytes;
 use clap::{App, Arg};
 use env_logger;
@@ -42,3 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+*/
+
+fn main() {}

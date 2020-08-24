@@ -1,136 +1,66 @@
+pub mod codec;
 mod error;
 mod peer;
 
 use crate::raft::message::Message;
-use bytes::buf::Buf;
 use bytes::Bytes;
-use error::RepcServiceError;
-use futures_util::{TryFutureExt, TryStreamExt};
-use http::response::Parts;
-use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use tokio::sync::{mpsc, oneshot};
-use tonic::body::BoxBody;
-use tonic::codec::{DecodeBuf, Decoder, Streaming};
-use tonic::transport::{Body, NamedService};
+use tonic::codegen::BoxFuture;
 use tonic::Status;
-use tower_service::Service;
 
-#[derive(Clone)]
-struct RepcInnerService {
+pub trait RepcService {
+    fn repc(&self) -> Repc;
+
+    fn from_tx(tx: mpsc::Sender<Message>) -> Self;
+}
+
+pub struct RepcUnaryService {
     tx: mpsc::Sender<Message>,
 }
 
-impl RepcInnerService {
-    pub fn new(tx: mpsc::Sender<Message>) -> Self {
-        RepcInnerService { tx }
-    }
-
-    pub async fn handle(
-        &mut self,
-        req: tonic::Request<Bytes>,
-    ) -> Result<tonic::Response<Bytes>, RepcServiceError> {
-        let body = req.into_inner();
-        let (tx_callback, rx_callback) = oneshot::channel();
-        let command = Message::Command {
-            body,
-            tx: tx_callback,
-        };
-        self.tx
-            .send(command)
-            .map_err(|_| RepcServiceError::NodeTerminated)
-            .await?;
-
-        rx_callback
-            .await
-            .map_err(|_| RepcServiceError::NodeCrashed)
-            .and_then(|res| res.map_err(RepcServiceError::CommandFailed))?;
-
-        // TODO: service returns tonic::Response
-
-        Ok(tonic::Response::new(Bytes::new()))
+impl RepcUnaryService {
+    fn new(tx: mpsc::Sender<Message>) -> Self {
+        RepcUnaryService { tx }
     }
 }
 
-#[derive(Default)]
-struct IdentDecoder;
+impl tonic::server::UnaryService<Bytes> for RepcUnaryService {
+    type Response = Bytes;
+    type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
 
-impl Decoder for IdentDecoder {
-    type Item = bytes::Bytes;
-    type Error = Status;
-    fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
-        Ok(Some(src.to_bytes()))
+    fn call(&mut self, req: tonic::Request<Bytes>) -> Self::Future {
+        let (callback_tx, callback_rx) = oneshot::channel();
+        let command = Message::Command {
+            body: req.into_inner(),
+            tx: callback_tx,
+        };
+        let mut tx = self.tx.clone();
+        let fut = async move {
+            if tx.send(command).await.is_ok() {
+                match callback_rx.await {
+                    Ok(Ok(body)) => Ok(tonic::Response::new(body)),
+                    Ok(Err(e)) => Err(e.into_status()),
+                    Err(e) => Err(Status::internal(e.to_string())),
+                }
+            } else {
+                Err(Status::internal("terminated"))
+            }
+        };
+        Box::pin(fut)
     }
 }
 
 #[derive(Clone)]
-pub struct RepcService {
-    inner: RepcInnerService,
+pub struct Repc {
+    tx: mpsc::Sender<Message>,
 }
 
-impl RepcService {
+impl Repc {
     pub fn new(tx: mpsc::Sender<Message>) -> Self {
-        RepcService {
-            inner: RepcInnerService::new(tx),
-        }
-    }
-}
-
-impl RepcService {
-    async fn handle(
-        mut inner: RepcInnerService,
-        req: http::Request<Body>,
-    ) -> Result<http::Response<BoxBody>, RepcServiceError> {
-        let (parts, body) = req.into_parts();
-
-        let stream = Streaming::new_request(IdentDecoder::default(), body);
-        futures_util::pin_mut!(stream);
-
-        let body = match stream.try_next().await {
-            Ok(Some(req)) => Ok(req),
-            Ok(None) => Err(RepcServiceError::CommandMissing),
-            Err(e) => Err(RepcServiceError::CommandInvalid(e)),
-        }?;
-
-        let req = tonic::Request::from_http(http::Request::from_parts(parts, body));
-        // TODO: merge trailers
-
-        // TODO: convert tonic::Response to http::Response
-        let result = inner.handle(req).await;
-        result
-            .map(|mut res| {
-                let mut http_res = http::Response::new(BoxBody::empty());
-                let metadata = std::mem::take(res.metadata_mut());
-                *http_res.headers_mut() = metadata.into_headers();
-                // *http_res.body_mut() = BoxBody::new(res.into_inner());
-                http_res
-            })
-            .unwrap_or_else(|e| e.into_http());
-        Ok(http::Response::new(BoxBody::empty()))
-    }
-}
-
-impl Service<http::Request<Body>> for RepcService {
-    type Response = http::Response<BoxBody>;
-    type Error = futures::never::Never;
-    type Future =
-        Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
-
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+        Repc { tx }
     }
 
-    fn call(&mut self, req: http::Request<Body>) -> Self::Future {
-        let inner = self.inner.clone();
-        Box::pin(async move {
-            let res = RepcService::handle(inner, req).await;
-            res.or_else(|e| Ok(e.into_http()))
-                .and_then(Ok::<_, Self::Error>)
-        })
+    pub fn into_unary_service(self) -> RepcUnaryService {
+        RepcUnaryService::new(self.tx)
     }
-}
-
-impl NamedService for RepcService {
-    const NAME: &'static str = "repc.Repc";
 }

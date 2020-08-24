@@ -5,21 +5,27 @@ use crate::raft::peer::partitioned::{self, RaftPartitionedPeer, RaftPartitionedP
 use crate::raft::peer::service::RaftServicePeer;
 use crate::raft::peer::RaftPeer;
 use crate::raft::service::RaftService;
+use crate::service::RepcService;
 use crate::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
+use bytes::BytesMut;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tonic::body::BoxBody;
+use tonic::server::UnaryService;
+use tonic::Status;
+use tower_service::Service;
 
 #[derive(Default)]
 pub struct PartitionedLocalRepcGroupBuilder<S> {
     confs: Vec<Configuration>,
-    state_machines: Vec<S>,
+    initial_states: Vec<S>,
 }
 
 impl<S> PartitionedLocalRepcGroupBuilder<S> {
-    pub fn state_machines(self, state_machines: Vec<S>) -> Self {
+    pub fn initial_states(self, initial_states: Vec<S>) -> Self {
         Self {
-            state_machines,
+            initial_states,
             ..self
         }
     }
@@ -27,17 +33,12 @@ impl<S> PartitionedLocalRepcGroupBuilder<S> {
     pub fn confs(self, confs: Vec<Configuration>) -> Self {
         Self { confs, ..self }
     }
-}
 
-impl<S> PartitionedLocalRepcGroupBuilder<S>
-where
-    S: StateMachine + Send + 'static,
-{
     pub fn build(self) -> PartitionedLocalRepcGroup<S> {
-        debug_assert_eq!(self.confs.len(), self.state_machines.len());
+        debug_assert_eq!(self.confs.len(), self.initial_states.len());
         PartitionedLocalRepcGroup {
             confs: self.confs,
-            state_machines: self.state_machines,
+            state_machines: self.initial_states,
         }
     }
 }
@@ -51,7 +52,7 @@ impl<S> PartitionedLocalRepcGroup<S>
 where
     S: StateMachine + Send + 'static,
 {
-    pub fn spawn(self) -> PartitionedLocalRaftGroupController<impl RaftPeer> {
+    pub fn spawn(self) -> PartitionedLocalRaftGroupController<S::Service, impl RaftPeer> {
         let sm_managers = self
             .state_machines
             .into_iter()
@@ -66,9 +67,14 @@ where
                 Node::new(i as NodeId + 1, smm_sender).conf(Arc::new(conf))
             })
             .collect();
-        let services: Vec<RaftService> = nodes
+        let raft_services: Vec<RaftService> = nodes
             .iter()
             .map(|node| RaftService::new(node.get_tx()))
+            .collect();
+        let repc_services: HashMap<NodeId, S::Service> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| (i as NodeId + 1, S::Service::from_tx(node.get_tx())))
             .collect();
         let n = nodes.len() as NodeId;
 
@@ -78,7 +84,7 @@ where
             let i = i as NodeId;
             let mut ps = HashMap::new();
             let mut cs = HashMap::new();
-            for (j, service) in services.iter().enumerate() {
+            for (j, service) in raft_services.iter().enumerate() {
                 let j = (j + 1) as NodeId;
                 if i == j {
                     continue;
@@ -96,15 +102,23 @@ where
             tokio::spawn(node.peers(peers).run());
         }
 
-        PartitionedLocalRaftGroupController { controllers }
+        PartitionedLocalRaftGroupController {
+            controllers,
+            repc_services,
+        }
     }
 }
 
-pub struct PartitionedLocalRaftGroupController<P: RaftPeer + Send + Sync> {
+pub struct PartitionedLocalRaftGroupController<S, P> {
     controllers: HashMap<NodeId, HashMap<NodeId, RaftPartitionedPeerController<P>>>,
+    repc_services: HashMap<NodeId, S>,
 }
 
-impl<P: RaftPeer + Send + Sync> PartitionedLocalRaftGroupController<P> {
+impl<S, P> PartitionedLocalRaftGroupController<S, P>
+where
+    S: RepcService + Service<http::Request<BoxBody>>,
+    P: RaftPeer + Send + Sync,
+{
     pub async fn pass(&mut self, i: NodeId, j: NodeId) -> Result<partitioned::ReqItem, PeerError> {
         self.controllers
             .get_mut(&i)
@@ -127,5 +141,31 @@ impl<P: RaftPeer + Send + Sync> PartitionedLocalRaftGroupController<P> {
             .unwrap()
             .discard()
             .await
+    }
+
+    pub async fn unary<T1, T2>(
+        &mut self,
+        i: NodeId,
+        command: T1,
+    ) -> Result<tonic::Response<T2>, Status>
+    where
+        T1: prost::Message,
+        T2: prost::Message + Default,
+    {
+        let repc_service = &mut self.repc_services.get(&i).unwrap();
+        let mut req_bytes_inner = BytesMut::new();
+        command.encode(&mut req_bytes_inner).unwrap();
+        let req_bytes = tonic::Request::new(req_bytes_inner.into());
+
+        let mut unary_service = repc_service.repc().into_unary_service();
+        let mut res_bytes = unary_service.call(req_bytes).await?;
+        let metadata = std::mem::take(res_bytes.metadata_mut());
+
+        let res_message_inner = T2::decode(res_bytes.into_inner())
+            .map_err(|e| Status::internal(format!("failed to decode: {}", e)))?;
+
+        let mut res_message = tonic::Response::new(res_message_inner);
+        *res_message.metadata_mut() = metadata;
+        Ok(res_message)
     }
 }

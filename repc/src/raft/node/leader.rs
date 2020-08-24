@@ -9,7 +9,6 @@ use crate::types::{LogIndex, NodeId, Term};
 use bytes::Bytes;
 use futures::future;
 use futures::{FutureExt, StreamExt};
-use log::{debug, warn};
 use std::collections::HashMap;
 use std::iter;
 use std::sync::{Arc, Weak};
@@ -20,6 +19,7 @@ use tokio::time;
 struct NotifyAppendToAppender;
 
 pub struct Leader {
+    id: NodeId,
     term: Term,
     appenders: Vec<Appender>,
     commit_manager: CommitManager,
@@ -45,7 +45,12 @@ impl Leader {
         let appenders = peers
             .iter()
             .map(|(&target_id, peer)| {
-                debug!("spawn a new appender<{}>", target_id);
+                log::debug!(
+                    "type=\"leader\", id={}, term={}, spawn a new appender<{}>",
+                    id,
+                    term,
+                    target_id
+                );
                 Appender::spawn(
                     id,
                     term,
@@ -59,10 +64,11 @@ impl Leader {
             .collect::<Vec<_>>();
 
         let leader = Leader {
-            log: Some(log),
+            id,
+            term,
             appenders,
             commit_manager,
-            term,
+            log: Some(log),
         };
 
         leader
@@ -71,7 +77,7 @@ impl Leader {
     pub async fn handle_command(
         &mut self,
         command: Bytes,
-        tx: oneshot::Sender<Result<(), CommandError>>,
+        tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
         let index = {
             let mut log = self.log.as_ref().unwrap().write().await;
@@ -79,12 +85,23 @@ impl Leader {
             log.last_index()
         };
 
+        log::trace!(
+            "type=\"leader\", id={}, term={}, message=\"wrote a command at log index {}\"",
+            self.id,
+            self.term,
+            index
+        );
+
         for appender in &mut self.appenders {
             let _ = appender.try_notify();
         }
 
         let subscription = self.commit_manager.subscribe();
-        tokio::spawn(subscription.wait_applied(index).map(|e| tx.send(e)));
+        tokio::spawn(
+            subscription
+                .wait_applied(index)
+                .map(|result| tx.send(result)),
+        );
     }
 
     pub fn extract_log(&mut self) -> Log {
@@ -126,7 +143,7 @@ impl Appender {
 
         // Notify to appender beforehand to send heartbeat immediately
         if let Err(e) = appender.try_notify() {
-            warn!("{}", e);
+            log::warn!("{}", e);
         }
 
         tokio::spawn(process.run());
@@ -151,7 +168,12 @@ struct AppenderProcess<P: RaftPeer> {
 
 impl<P: RaftPeer> AppenderProcess<P> {
     async fn run(mut self) {
-        debug!("start appender process: target_id={}", self.target_id);
+        log::debug!(
+            "type=\"appender\", id={}, term={}, target_id={}, message=\"start appender process\"",
+            self.id,
+            self.term,
+            self.target_id
+        );
 
         let mut next_index = {
             let log = self.log.upgrade();
@@ -162,8 +184,8 @@ impl<P: RaftPeer> AppenderProcess<P> {
         let mut match_index = 0;
 
         loop {
-            debug!(
-                "id={}, term={}, target_id={}, message=\"wait for heartbeat timeout or notification\"",
+            log::debug!(
+                "type=\"appender\", id={}, term={}, target_id={}, message=\"wait for heartbeat timeout or notification\"",
                 self.id, self.term, self.target_id,
             );
             let wait = time::timeout(
@@ -173,9 +195,17 @@ impl<P: RaftPeer> AppenderProcess<P> {
             .await;
             match wait {
                 Ok(None) => break,
-                Ok(Some(_)) => {}
+                Ok(Some(_)) => {
+                    log::trace!(
+                        "type=\"appender\", id={}, term={}, target_id={}, message=\"notified to send new commands\"",
+                        self.id, self.term, self.target_id,
+                    );
+                }
                 Err(_) => {
-                    debug!("timeout. send heartbeat");
+                    log::trace!(
+                        "type=\"appender\", id={}, term={}, target_id={}, message=\"timeout. send heartbeat\"",
+                        self.id, self.term, self.target_id,
+                    );
                 }
             }
             if let Ok(None) = wait {
@@ -185,7 +215,7 @@ impl<P: RaftPeer> AppenderProcess<P> {
             let log = match self.log.upgrade() {
                 Some(log) => log,
                 None => {
-                    debug!("old");
+                    log::debug!("old");
                     break;
                 }
             };
@@ -232,12 +262,8 @@ impl<P: RaftPeer> AppenderProcess<P> {
 #[derive(Clone)]
 struct Applied {
     index: LogIndex,
-}
-
-impl From<LogIndex> for Applied {
-    fn from(index: LogIndex) -> Self {
-        Applied { index }
-    }
+    res: Bytes,
+    metadata: tonic::metadata::MetadataMap,
 }
 
 struct Replicated {
@@ -284,14 +310,14 @@ struct CommitManagerSubscription {
 }
 
 impl CommitManagerSubscription {
-    async fn wait_applied(self, index: LogIndex) -> Result<(), CommandError> {
+    async fn wait_applied(self, index: LogIndex) -> Result<Bytes, CommandError> {
         let stream = self.rx.into_stream();
         tokio::pin!(stream);
 
         stream
             .filter_map(|applied| {
                 future::ready(match applied {
-                    Ok(applied) if applied.index >= index => Some(Ok(())),
+                    Ok(applied) if applied.index >= index => Some(Ok(applied.res)),
                     Err(broadcast::RecvError::Closed) => Some(Err(CommandError::NotLeader)),
                     Err(broadcast::RecvError::Lagged(n)) => {
                         log::warn!("commit notification is lagging: {}", n);
@@ -366,19 +392,28 @@ impl CommitManagerProcess {
                     }
                 };
                 let log = log.read().await;
-                let entries = log.get_range(majority + 1, committed);
+                let entries = log.get_range(committed, majority + 1);
                 for entry in entries {
                     let command = entry.command();
-                    if let Err(e) = self.sm_manager.apply(command).await {
-                        log::warn!("failed to apply command to the state machine: {}", e);
+                    let mut res = match self.sm_manager.apply(command).await {
+                        Ok(res) => res,
+                        Err(e) => {
+                            log::warn!("failed to apply command to the state machine: {}", e);
+                            break;
+                        }
+                    };
+                    let metadata = std::mem::take(res.metadata_mut());
+                    let applied = Applied {
+                        index: committed,
+                        res: res.into_inner(),
+                        metadata,
+                    };
+                    if let Err(_) = self.tx_applied.send(applied) {
+                        log::info!("leader process has been terminated");
                         break;
                     }
+                    committed += 1;
                 }
-                if let Err(_) = self.tx_applied.send(committed.into()) {
-                    log::info!("leader process has been terminated");
-                    break;
-                }
-                committed = majority;
             }
         }
     }

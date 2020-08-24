@@ -1,4 +1,5 @@
 pub mod error;
+use crate::service::RepcService;
 use bytes::Bytes;
 use error::StateMachineError;
 use tokio::sync::mpsc;
@@ -6,18 +7,22 @@ use tokio::sync::oneshot;
 
 pub struct StateMachineCommand {
     command: Bytes,
-    tx: oneshot::Sender<()>,
+    callback: oneshot::Sender<tonic::Response<Bytes>>,
 }
 
 impl StateMachineCommand {
-    fn new(command: Bytes, tx: oneshot::Sender<()>) -> Self {
-        StateMachineCommand { command, tx }
+    fn new(command: Bytes, callback: oneshot::Sender<tonic::Response<Bytes>>) -> Self {
+        StateMachineCommand { command, callback }
     }
 }
 
 pub trait StateMachine {
-    fn apply<P: AsRef<str>>(&mut self, path: P, command: Bytes)
-        -> Result<Bytes, StateMachineError>;
+    type Service: RepcService;
+    fn apply<P: AsRef<str>>(
+        &mut self,
+        path: P,
+        command: Bytes,
+    ) -> Result<tonic::Response<Bytes>, StateMachineError>;
 }
 
 #[derive(Clone)]
@@ -38,7 +43,10 @@ impl StateMachineManager {
         Self { tx }
     }
 
-    pub async fn apply(&mut self, command: Bytes) -> Result<(), StateMachineError> {
+    pub async fn apply(
+        &mut self,
+        command: Bytes,
+    ) -> Result<tonic::Response<Bytes>, StateMachineError> {
         let (tx, rx) = oneshot::channel();
         let command = StateMachineCommand::new(command, tx);
         self.tx
@@ -60,8 +68,14 @@ where
 {
     pub async fn run(mut self) {
         while let Some(command) = self.rx.recv().await {
-            self.state_machine.apply("path", command.command);
-            if let Err(_) = command.tx.send(()) {
+            let res = match self.state_machine.apply("path", command.command) {
+                Ok(res) => res,
+                Err(e) => {
+                    log::warn!("failed to apply: {}", e);
+                    break;
+                }
+            };
+            if let Err(_) = command.callback.send(res) {
                 log::warn!("couldn't notify the command sender of the application completion");
             }
         }

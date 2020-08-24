@@ -45,11 +45,11 @@ where
         tokio::spawn(raft_server.serve(raft_addr));
 
         // start rpc server
-        let repc_addr = SocketAddr::new(node_conf.ip, node_conf.repc_port);
-        let repc_service = RepcService::new(node.get_tx());
-        let repc_server = Server::builder().add_service(repc_service);
-        info!("start serving Repc service on {}", repc_addr);
-        tokio::spawn(repc_server.serve(repc_addr));
+        // let repc_addr = SocketAddr::new(node_conf.ip, node_conf.repc_port);
+        // let repc_service = RepcService::new(node.get_tx());
+        // let repc_server = Server::builder().add_service(repc_service);
+        // info!("start serving Repc service on {}", repc_addr);
+        // tokio::spawn(repc_server.serve(repc_addr));
 
         // set up connections to other nodes
         let mut ids = Vec::new();

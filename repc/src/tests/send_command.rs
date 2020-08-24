@@ -1,4 +1,4 @@
-use super::app::{IncrServer, IncrStateMachine};
+use super::app::{IncrRequest, IncrResponse, IncrState};
 use super::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
@@ -35,7 +35,7 @@ async fn send_command() {
 
     let group = PartitionedLocalRepcGroupBuilder::default()
         .confs(vec![conf1, conf2, conf3])
-        .state_machines(vec![IncrStateMachine::<IncrServer>::default(); 3])
+        .initial_states(vec![IncrState::default(); 3])
         .build();
     let mut controller = group.spawn();
 
@@ -56,4 +56,9 @@ async fn send_command() {
                 },
         })
     ));
+
+    let res: Result<tonic::Response<IncrResponse>, tonic::Status> =
+        controller.unary(1, IncrRequest { i: 1 }).await;
+
+    res.unwrap();
 }

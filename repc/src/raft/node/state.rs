@@ -88,7 +88,7 @@ impl State {
     pub async fn handle_command(
         &mut self,
         command: Bytes,
-        tx: oneshot::Sender<Result<(), CommandError>>,
+        tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
         match self {
             State::Leader { ref mut leader } => {
