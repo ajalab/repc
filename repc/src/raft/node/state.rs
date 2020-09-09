@@ -2,6 +2,7 @@ use super::candidate::Candidate;
 use super::error::CommandError;
 use super::follower::Follower;
 use super::leader::Leader;
+use crate::raft::log::Command;
 use crate::raft::log::Log;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
@@ -87,7 +88,7 @@ impl State {
 
     pub async fn handle_command(
         &mut self,
-        command: Bytes,
+        command: Command,
         tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
         match self {

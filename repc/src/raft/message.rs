@@ -2,6 +2,7 @@ use super::node::error::CommandError;
 use super::pb::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
+use crate::raft::log::Command;
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::error;
@@ -29,7 +30,7 @@ pub enum Message {
     },
 
     Command {
-        body: Bytes,
+        command: Command,
         tx: oneshot::Sender<Result<Bytes, CommandError>>,
     },
 

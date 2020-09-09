@@ -1,3 +1,4 @@
+use crate::raft::log::Command;
 use crate::raft::message::Message;
 use crate::service::codec::IdentCodec;
 use crate::service::{Repc, RepcService};
@@ -35,15 +36,11 @@ where
     S: Incr,
 {
     type Service = IncrService;
-    fn apply<P: AsRef<str>>(
-        &mut self,
-        path: P,
-        command: Bytes,
-    ) -> Result<tonic::Response<Bytes>, StateMachineError> {
-        let path = path.as_ref();
-        match path {
+    fn apply(&mut self, command: Command) -> Result<tonic::Response<Bytes>, StateMachineError> {
+        let rpc = command.rpc().as_ref();
+        match rpc {
             "/incr.Incr/Incr" => {
-                let req = IncrRequest::decode(command)
+                let req = IncrRequest::decode(command.body().clone())
                     .map_err(|e| StateMachineError::DecodeRequestFailed(e))?;
                 let mut res = self.incr(req).map_err(StateMachineError::ApplyFailed)?;
                 let mut res_bytes = tonic::Response::new(BytesMut::new());
@@ -53,7 +50,7 @@ where
                     .map_err(StateMachineError::EncodeResponseFailed)?;
                 Ok(res_bytes.map(Bytes::from))
             }
-            _ => Err(StateMachineError::UnknownPath(path.to_string())),
+            _ => Err(StateMachineError::UnknownPath(rpc.into())),
         }
     }
 }
@@ -101,9 +98,11 @@ where
 
     fn call(&mut self, req: http::Request<B>) -> Self::Future {
         let repc = self.repc();
-        match req.uri().path() {
+        let path = req.uri().path();
+        let rpc = path.to_string().into();
+        match path {
             "/incr.Incr/Incr" => Box::pin(async move {
-                let service = repc.into_unary_service();
+                let service = repc.to_unary_service(rpc);
                 let codec = IdentCodec;
                 let mut grpc = Grpc::new(codec);
                 let res = grpc.unary(service, req).await;

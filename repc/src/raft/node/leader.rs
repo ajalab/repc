@@ -1,6 +1,7 @@
 use super::error::CommandError;
 use crate::configuration::Configuration;
 use crate::configuration::LeaderConfiguration;
+use crate::raft::log::Command;
 use crate::raft::log::{Log, LogEntry};
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
@@ -77,7 +78,7 @@ impl Leader {
 
     pub async fn handle_command(
         &mut self,
-        command: Bytes,
+        command: Command,
         tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
         let index = {
@@ -244,16 +245,27 @@ impl<P: RaftPeer> AppenderProcess<P> {
             let prev_log_index = next_index - 1;
             let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
             let last_committed_index = log.last_committed();
+            let entries = log
+                .iter_at(next_index)
+                .map(|entry| {
+                    let command = entry.command();
+                    pb::LogEntry {
+                        term: entry.term(),
+                        rpc: command.rpc().clone().into(),
+                        body: command.body().as_ref().to_owned(),
+                    }
+                })
+                .collect::<Vec<_>>();
+            let n_entries = entries.len();
             drop(log);
 
-            let entries: Vec<pb::LogEntry> = vec![];
             let append_entries = self.peer.append_entries(pb::AppendEntriesRequest {
                 leader_id: self.id,
                 term: self.term,
                 prev_log_index,
                 prev_log_term,
                 last_committed_index,
-                entries: vec![], // TODO
+                entries,
             });
 
             let res = time::timeout(
@@ -264,7 +276,14 @@ impl<P: RaftPeer> AppenderProcess<P> {
 
             if let Ok(Ok(res)) = res {
                 if res.success {
-                    match_index = prev_log_index + (entries.len() as LogIndex);
+                    match_index = prev_log_index + (n_entries as LogIndex);
+                    tracing::trace!(
+                        id = self.id,
+                        term = self.term,
+                        target_id = self.target_id,
+                        "AppendRequest succeeded. updating match_index to {}",
+                        match_index,
+                    );
                     if let Err(e) = self
                         .commit_manager_notifier
                         .notify_replicated(self.target_id, match_index)
@@ -399,7 +418,7 @@ impl CommitManagerProcess {
     }
 
     async fn run(mut self) {
-        let mut committed = LogIndex::default();
+        let mut committed = 0;
         while let Some(replicated) = self.rx_replicated.recv().await {
             let s = self.match_indices.get_mut(&replicated.id).unwrap();
             *s = replicated.index;
@@ -418,9 +437,15 @@ impl CommitManagerProcess {
                     }
                 };
                 let log = log.read().await;
-                let entries = log.get_range(committed, majority + 1);
+                let entries = log.get_range(committed + 1, majority);
+                tracing::trace!(
+                    "start committing {} entries: {}..={}",
+                    entries.len(),
+                    committed + 1,
+                    majority,
+                );
                 for entry in entries {
-                    let command = entry.command();
+                    let command = entry.command().clone();
                     let mut res = match self.sm_manager.apply(command).await {
                         Ok(res) => res,
                         Err(e) => {
@@ -429,6 +454,7 @@ impl CommitManagerProcess {
                         }
                     };
                     let metadata = std::mem::take(res.metadata_mut());
+                    committed += 1;
                     let applied = Applied {
                         index: committed,
                         res: res.into_inner(),
@@ -438,8 +464,12 @@ impl CommitManagerProcess {
                         tracing::info!("leader process has been terminated");
                         break;
                     }
-                    committed += 1;
                 }
+                tracing::trace!(
+                    "finished committing {} entries: committed = {}",
+                    entries.len(),
+                    committed,
+                );
             }
         }
     }

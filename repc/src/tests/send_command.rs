@@ -82,8 +82,9 @@ async fn send_command() {
             ))
         })
         .await;
-    let res: Result<tonic::Response<IncrResponse>, tonic::Status> =
-        controller.unary(1, IncrRequest { i: 1 }).await;
+    let res: Result<tonic::Response<IncrResponse>, tonic::Status> = controller
+        .unary(1, "/incr.Incr/Incr", IncrRequest { i: 10 })
+        .await;
 
-    res.unwrap();
+    assert_eq!(IncrResponse { n: 10 }, res.unwrap().into_inner());
 }

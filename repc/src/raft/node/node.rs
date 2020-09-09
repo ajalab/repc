@@ -4,7 +4,7 @@ use super::follower;
 use super::leader;
 use super::state::State;
 use crate::configuration::Configuration;
-use crate::raft::log::Log;
+use crate::raft::log::{Command, Log};
 use crate::raft::message::Message;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
@@ -112,7 +112,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
 
                 Message::ElectionTimeout => self.handle_election_timeout().await,
 
-                Message::Command { body, tx } => self.handle_command(body, tx).await,
+                Message::Command { command, tx } => self.handle_command(command, tx).await,
                 _ => {}
             }
         }
@@ -199,7 +199,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
 
     async fn handle_command(
         &mut self,
-        command: Bytes,
+        command: Command,
         tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
         tracing::trace!(id = self.id, term = self.term, "received a command");

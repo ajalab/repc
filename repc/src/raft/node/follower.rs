@@ -1,6 +1,6 @@
 use crate::configuration::Configuration;
 use crate::raft::deadline_clock::DeadlineClock;
-use crate::raft::log::{Log, LogEntry};
+use crate::raft::log::{Command, Log, LogEntry};
 use crate::raft::message::Message;
 use crate::raft::pb;
 use crate::state_machine::StateMachineManager;
@@ -205,7 +205,9 @@ impl Follower {
             req.entries
                 .into_iter()
                 .skip(i as usize)
-                .map(|e: pb::LogEntry| LogEntry::new(e.term, e.command.into())),
+                .map(|e: pb::LogEntry| {
+                    LogEntry::new(e.term, Command::new(e.rpc.into(), e.body.into()))
+                }),
         );
         tracing::trace!(
             id = self.id,

@@ -215,7 +215,6 @@ impl<P: RaftPeer + Send + Sync> RaftPartitionedPeerController<P> {
     ) {
         let mut req_verifier = self.req_verifier.write().await;
         *req_verifier = Some(Box::new(verifier));
-        tracing::trace!("set a request verifier");
     }
 
     pub async fn pass_next_response(
@@ -224,7 +223,6 @@ impl<P: RaftPeer + Send + Sync> RaftPartitionedPeerController<P> {
     ) {
         let mut res_verifier = self.res_verifier.write().await;
         *res_verifier = Some(Box::new(verifier));
-        tracing::trace!("set a response verifier");
     }
 }
 

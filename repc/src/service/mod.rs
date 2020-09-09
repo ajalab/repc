@@ -1,6 +1,7 @@
 pub mod codec;
 mod error;
 
+use crate::raft::log::{Command, RpcId};
 use crate::raft::message::Message;
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot};
@@ -14,12 +15,13 @@ pub trait RepcService {
 }
 
 pub struct RepcUnaryService {
+    rpc: RpcId,
     tx: mpsc::Sender<Message>,
 }
 
 impl RepcUnaryService {
-    fn new(tx: mpsc::Sender<Message>) -> Self {
-        RepcUnaryService { tx }
+    fn new(rpc: RpcId, tx: mpsc::Sender<Message>) -> Self {
+        RepcUnaryService { rpc, tx }
     }
 }
 
@@ -30,7 +32,7 @@ impl tonic::server::UnaryService<Bytes> for RepcUnaryService {
     fn call(&mut self, req: tonic::Request<Bytes>) -> Self::Future {
         let (callback_tx, callback_rx) = oneshot::channel();
         let command = Message::Command {
-            body: req.into_inner(),
+            command: Command::new(self.rpc.clone(), req.into_inner()),
             tx: callback_tx,
         };
         let mut tx = self.tx.clone();
@@ -59,7 +61,7 @@ impl Repc {
         Repc { tx }
     }
 
-    pub fn into_unary_service(self) -> RepcUnaryService {
-        RepcUnaryService::new(self.tx)
+    pub fn to_unary_service(self, rpc: RpcId) -> RepcUnaryService {
+        RepcUnaryService::new(rpc, self.tx)
     }
 }

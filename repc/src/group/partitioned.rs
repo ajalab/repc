@@ -173,12 +173,14 @@ where
         self.peer(j, i).pass_next_response(verifier).await;
     }
 
-    pub async fn unary<T1, T2>(
+    pub async fn unary<R, T1, T2>(
         &mut self,
         i: NodeId,
+        rpc: R,
         command: T1,
     ) -> Result<tonic::Response<T2>, Status>
     where
+        R: AsRef<str>,
         T1: prost::Message,
         T2: prost::Message + Default,
     {
@@ -187,7 +189,7 @@ where
         command.encode(&mut req_bytes_inner).unwrap();
         let req_bytes = tonic::Request::new(req_bytes_inner.into());
 
-        let mut unary_service = repc_service.repc().into_unary_service();
+        let mut unary_service = repc_service.repc().to_unary_service(rpc.as_ref().into());
         let mut res_bytes = unary_service.call(req_bytes).await?;
         let metadata = std::mem::take(res_bytes.metadata_mut());
 

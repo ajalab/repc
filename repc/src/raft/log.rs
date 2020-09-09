@@ -1,14 +1,54 @@
 use crate::types::{LogIndex, Term};
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 
-#[derive(Default)]
-pub struct LogEntry<T> {
-    term: Term,
-    command: T,
+#[derive(Clone)]
+pub struct RpcId(String);
+
+impl<T: ToString> From<T> for RpcId {
+    fn from(id: T) -> Self {
+        RpcId(id.to_string())
+    }
 }
 
-impl<T: Clone> LogEntry<T> {
-    pub fn new(term: Term, command: T) -> Self {
+impl From<RpcId> for String {
+    fn from(id: RpcId) -> Self {
+        id.0
+    }
+}
+
+impl AsRef<str> for RpcId {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+#[derive(Clone)]
+pub struct Command {
+    rpc: RpcId,
+    body: Bytes,
+}
+
+impl Command {
+    pub fn new(rpc: RpcId, body: Bytes) -> Self {
+        Command { rpc, body }
+    }
+
+    pub fn rpc(&self) -> &RpcId {
+        &self.rpc
+    }
+
+    pub fn body(&self) -> &Bytes {
+        &self.body
+    }
+}
+
+pub struct LogEntry {
+    term: Term,
+    command: Command,
+}
+
+impl LogEntry {
+    pub fn new(term: Term, command: Command) -> Self {
         LogEntry { term, command }
     }
 
@@ -16,20 +56,20 @@ impl<T: Clone> LogEntry<T> {
         self.term
     }
 
-    pub fn command(&self) -> T {
-        self.command.clone()
+    pub fn command(&self) -> &Command {
+        &self.command
     }
 }
 
 #[derive(Default)]
-pub struct Log<T = Bytes> {
-    entries: Vec<LogEntry<T>>,
+pub struct Log {
+    entries: Vec<LogEntry>,
     last_applied: LogIndex,
     last_committed: LogIndex,
 }
 
-impl<T: Buf> Log<T> {
-    pub fn get(&self, i: LogIndex) -> Option<&LogEntry<T>> {
+impl Log {
+    pub fn get(&self, i: LogIndex) -> Option<&LogEntry> {
         if 0 < i && i <= self.last_index() {
             Some(&self.entries[i as usize - 1])
         } else {
@@ -37,13 +77,21 @@ impl<T: Buf> Log<T> {
         }
     }
 
+    pub fn iter_at(&self, i: LogIndex) -> impl Iterator<Item = &LogEntry> {
+        if i > self.entries.len() as LogIndex {
+            [].iter()
+        } else {
+            self.entries[i as usize - 1..].iter()
+        }
+    }
+
     // end is inclusive
-    pub fn get_range(&self, start: LogIndex, end: LogIndex) -> &[LogEntry<T>] {
+    pub fn get_range(&self, start: LogIndex, end: LogIndex) -> &[LogEntry] {
         &self.entries[(start as usize - 1)..(end as usize)]
     }
 
     // Append log entries
-    pub fn append(&mut self, entries: impl Iterator<Item = LogEntry<T>>) {
+    pub fn append(&mut self, entries: impl Iterator<Item = LogEntry>) {
         self.entries.extend(entries);
     }
 
