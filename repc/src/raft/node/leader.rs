@@ -190,7 +190,7 @@ impl<P: RaftPeer> AppenderProcess<P> {
             let log = log.read().await;
             log.last_index() + 1
         };
-        let mut match_index = 0;
+        let mut match_index;
 
         loop {
             tracing::trace!(

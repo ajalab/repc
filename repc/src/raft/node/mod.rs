@@ -3,6 +3,6 @@ pub mod error;
 mod follower;
 mod leader;
 mod node;
-mod state;
+mod role;
 
 pub use node::Node;

@@ -2,7 +2,7 @@ use super::candidate;
 use super::error::CommandError;
 use super::follower;
 use super::leader;
-use super::state::State;
+use super::role::Role;
 use crate::configuration::Configuration;
 use crate::raft::log::{Command, Log};
 use crate::raft::message::Message;
@@ -55,7 +55,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
 
     pub async fn run(self) {
         let term = 1;
-        let node = State::Follower {
+        let role = Role::Follower {
             follower: follower::Follower::spawn(
                 self.id,
                 self.conf.clone(),
@@ -69,7 +69,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
             id: self.id,
             conf: self.conf,
             term,
-            node,
+            role,
             tx: self.tx,
             rx: self.rx,
             sm_manager: self.sm_manager,
@@ -86,7 +86,7 @@ struct NodeProcess<P: RaftPeer + Clone + Send + Sync + 'static> {
     // TODO: make these persistent
     term: Term,
 
-    node: State,
+    role: Role,
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
@@ -141,7 +141,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
         mut tx: mpsc::Sender<Result<pb::RequestVoteResponse, Box<dyn error::Error + Send>>>,
     ) {
         self.update_term(req.candidate_id, req.term);
-        let res = self.node.handle_request_vote_request(req).await;
+        let res = self.role.handle_request_vote_request(req).await;
 
         let id = self.id;
         let term = self.term;
@@ -160,7 +160,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
     }
 
     async fn handle_request_vote_response(&mut self, res: pb::RequestVoteResponse, id: NodeId) {
-        if self.node.handle_request_vote_response(res, id).await {
+        if self.role.handle_request_vote_response(res, id).await {
             self.trans_state_leader();
         }
     }
@@ -171,7 +171,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
         mut tx: mpsc::Sender<Result<pb::AppendEntriesResponse, Box<dyn error::Error + Send>>>,
     ) {
         self.update_term(req.leader_id, req.term);
-        let res = self.node.handle_append_entries_request(req).await;
+        let res = self.role.handle_append_entries_request(req).await;
 
         let id = self.id;
         let term = self.term;
@@ -194,7 +194,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
         self.term += 1;
         self.trans_state_candidate();
 
-        self.node.handle_election_timeout(&self.peers).await;
+        self.role.handle_election_timeout(&self.peers).await;
     }
 
     async fn handle_command(
@@ -203,18 +203,18 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
         tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
         tracing::trace!(id = self.id, term = self.term, "received a command");
-        self.node.handle_command(command, tx).await;
+        self.role.handle_command(command, tx).await;
     }
 
     fn trans_state_follower(&mut self) {
         tracing::info!(id = self.id, term = self.term, "become a follower");
 
-        self.node = State::Follower {
+        self.role = Role::Follower {
             follower: follower::Follower::spawn(
                 self.id,
                 self.conf.clone(),
                 self.term,
-                self.node.extract_log(),
+                self.role.extract_log(),
                 self.sm_manager.clone(),
                 self.tx.clone(),
             ),
@@ -225,13 +225,13 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
         tracing::info!(id = self.id, term = self.term, "become a candidate");
 
         let quorum = (self.peers.len() + 1) / 2;
-        self.node = State::Candidate {
+        self.role = Role::Candidate {
             candidate: candidate::Candidate::spawn(
                 self.id,
                 self.conf.clone(),
                 self.term,
                 quorum,
-                self.node.extract_log(),
+                self.role.extract_log(),
                 self.tx.clone(),
             ),
         };
@@ -240,12 +240,12 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
     fn trans_state_leader(&mut self) {
         tracing::info!(id = self.id, term = self.term, "become a leader");
 
-        self.node = State::Leader {
+        self.role = Role::Leader {
             leader: leader::Leader::spawn(
                 self.id,
                 self.conf.clone(),
                 self.term,
-                self.node.extract_log(),
+                self.role.extract_log(),
                 &self.peers,
                 self.sm_manager.clone(),
             ),

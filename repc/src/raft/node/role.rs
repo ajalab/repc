@@ -12,18 +12,18 @@ use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::oneshot;
 
-pub enum State {
+pub enum Role {
     Follower { follower: Follower },
     Candidate { candidate: Candidate },
     Leader { leader: Leader },
 }
 
-impl State {
+impl Role {
     pub fn extract_log(&mut self) -> Log {
         match self {
-            State::Follower { follower } => follower.extract_log(),
-            State::Candidate { candidate } => candidate.extract_log(),
-            State::Leader { leader } => leader.extract_log(),
+            Role::Follower { follower } => follower.extract_log(),
+            Role::Candidate { candidate } => candidate.extract_log(),
+            Role::Leader { leader } => leader.extract_log(),
         }
     }
 
@@ -32,7 +32,7 @@ impl State {
         req: pb::RequestVoteRequest,
     ) -> Result<pb::RequestVoteResponse, Box<dyn Error + Send>> {
         match self {
-            State::Follower { ref mut follower } => follower.handle_request_vote_request(req).await,
+            Role::Follower { ref mut follower } => follower.handle_request_vote_request(req).await,
             _ => unimplemented!(),
         }
     }
@@ -43,7 +43,7 @@ impl State {
         id: NodeId,
     ) -> bool {
         match self {
-            State::Candidate {
+            Role::Candidate {
                 ref mut candidate, ..
             } => candidate.handle_request_vote_response(res, id).await,
             _ => unimplemented!(),
@@ -55,7 +55,7 @@ impl State {
         req: pb::AppendEntriesRequest,
     ) -> Result<pb::AppendEntriesResponse, Box<dyn Error + Send>> {
         match self {
-            State::Follower { ref mut follower } => {
+            Role::Follower { ref mut follower } => {
                 follower.handle_append_entries_request(req).await
             }
             _ => unimplemented!(),
@@ -67,9 +67,7 @@ impl State {
         peers: &HashMap<NodeId, P>,
     ) {
         match self {
-            State::Candidate { ref mut candidate } => {
-                candidate.handle_election_timeout(peers).await
-            }
+            Role::Candidate { ref mut candidate } => candidate.handle_election_timeout(peers).await,
             _ => unimplemented!(),
         }
     }
@@ -80,7 +78,7 @@ impl State {
         tx: oneshot::Sender<Result<Bytes, CommandError>>,
     ) {
         match self {
-            State::Leader { ref mut leader } => {
+            Role::Leader { ref mut leader } => {
                 leader.handle_command(command, tx).await;
             }
             _ => {
