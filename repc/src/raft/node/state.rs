@@ -19,18 +19,6 @@ pub enum State {
 }
 
 impl State {
-    pub const FOLLOWER: &'static str = "follower";
-    pub const CANDIDATE: &'static str = "candidate";
-    pub const LEADER: &'static str = "leader";
-
-    pub fn to_ident(&self) -> &'static str {
-        match self {
-            State::Follower { .. } => Self::FOLLOWER,
-            State::Candidate { .. } => Self::CANDIDATE,
-            State::Leader { .. } => Self::LEADER,
-        }
-    }
-
     pub fn extract_log(&mut self) -> Log {
         match self {
             State::Follower { follower } => follower.extract_log(),

@@ -65,7 +65,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
                 self.tx.clone(),
             ),
         };
-        let mut process = BaseNodeProcess {
+        let mut process = NodeProcess {
             id: self.id,
             conf: self.conf,
             term,
@@ -79,7 +79,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
     }
 }
 
-struct BaseNodeProcess<P: RaftPeer + Clone + Send + Sync + 'static> {
+struct NodeProcess<P: RaftPeer + Clone + Send + Sync + 'static> {
     id: NodeId,
     conf: Arc<Configuration>,
 
@@ -94,7 +94,7 @@ struct BaseNodeProcess<P: RaftPeer + Clone + Send + Sync + 'static> {
     peers: HashMap<NodeId, P>,
 }
 
-impl<P: RaftPeer + Clone + Send + Sync + 'static> BaseNodeProcess<P> {
+impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
     async fn handle_messages(&mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {
