@@ -6,7 +6,7 @@ use crate::raft::peer::service::RaftServicePeer;
 use crate::raft::peer::RaftPeer;
 use crate::raft::service::RaftService;
 use crate::service::RepcService;
-use crate::state_machine::{StateMachine, StateMachineManager};
+use crate::state::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use bytes::BytesMut;
 use std::collections::HashMap;

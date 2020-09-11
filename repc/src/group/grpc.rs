@@ -3,7 +3,7 @@ use crate::raft::node::Node;
 use crate::raft::pb::raft_server::RaftServer;
 use crate::raft::peer::grpc::RaftGrpcPeer;
 use crate::raft::service::RaftService;
-use crate::state_machine::{StateMachine, StateMachineManager};
+use crate::state::state_machine::{StateMachine, StateMachineManager};
 use crate::types::NodeId;
 use std::collections::HashMap;
 use std::error;

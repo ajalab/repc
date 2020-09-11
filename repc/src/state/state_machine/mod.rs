@@ -1,5 +1,5 @@
 pub mod error;
-use crate::raft::log::Command;
+use super::Command;
 use crate::service::RepcService;
 use bytes::Bytes;
 use error::StateMachineError;

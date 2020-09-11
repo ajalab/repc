@@ -1,9 +1,10 @@
 use crate::configuration::Configuration;
 use crate::raft::deadline_clock::DeadlineClock;
-use crate::raft::log::{Command, Log, LogEntry};
 use crate::raft::message::Message;
 use crate::raft::pb;
-use crate::state_machine::StateMachineManager;
+use crate::state::log::{Log, LogEntry};
+use crate::state::state_machine::StateMachineManager;
+use crate::state::Command;
 use crate::types::{NodeId, Term};
 use rand::Rng;
 use std::cmp;

@@ -1,4 +1,3 @@
-pub(crate) mod log;
 pub(crate) mod node;
 pub(crate) mod peer;
 pub(crate) mod pb {

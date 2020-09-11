@@ -1,9 +1,9 @@
-use crate::raft::log::Command;
 use crate::raft::message::Message;
 use crate::service::codec::IdentCodec;
 use crate::service::{Repc, RepcService};
-use crate::state_machine::error::{ApplyError, StateMachineError};
-use crate::state_machine::StateMachine;
+use crate::state::state_machine::error::{ApplyError, StateMachineError};
+use crate::state::state_machine::StateMachine;
+use crate::state::Command;
 use bytes::{Bytes, BytesMut};
 use prost::Message as ProstMessage;
 use std::error::Error;

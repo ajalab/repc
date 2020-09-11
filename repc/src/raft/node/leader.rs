@@ -1,11 +1,11 @@
 use super::error::CommandError;
 use crate::configuration::Configuration;
 use crate::configuration::LeaderConfiguration;
-use crate::raft::log::Command;
-use crate::raft::log::{Log, LogEntry};
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
-use crate::state_machine::StateMachineManager;
+use crate::state::log::{Log, LogEntry};
+use crate::state::state_machine::StateMachineManager;
+use crate::state::Command;
 use crate::types::{LogIndex, NodeId, Term};
 use bytes::Bytes;
 use futures::future;

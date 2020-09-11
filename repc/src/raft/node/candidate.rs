@@ -1,9 +1,9 @@
 use crate::configuration::Configuration;
 use crate::raft::deadline_clock::DeadlineClock;
-use crate::raft::log::Log;
 use crate::raft::message::Message;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
+use crate::state::log::Log;
 use crate::types::{NodeId, Term};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};

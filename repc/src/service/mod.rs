@@ -1,8 +1,8 @@
 pub mod codec;
 mod error;
 
-use crate::raft::log::{Command, RpcId};
 use crate::raft::message::Message;
+use crate::state::{Command, RpcId};
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot};
 use tonic::codegen::BoxFuture;
