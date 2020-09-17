@@ -2,12 +2,12 @@ use crate::configuration::Configuration;
 use crate::raft::deadline_clock::DeadlineClock;
 use crate::raft::message::Message;
 use crate::raft::pb;
-use crate::state::log::{Log, LogEntry};
-use crate::state::state_machine::StateMachineManager;
+use crate::state::log::LogEntry;
 use crate::state::Command;
+use crate::state::State;
+use crate::state::StateMachine;
 use crate::types::{NodeId, Term};
 use rand::Rng;
-use std::cmp;
 use std::error;
 use std::fmt;
 use std::sync::Arc;
@@ -24,22 +24,23 @@ impl fmt::Display for ReferenceError {
 
 impl error::Error for ReferenceError {}
 
-pub struct Follower {
+pub struct Follower<S> {
     id: NodeId,
     term: Term,
     deadline_clock: DeadlineClock,
     voted_for: Option<NodeId>,
-    sm_manager: StateMachineManager,
-    log: Option<Log>,
+    state: Option<State<S>>,
 }
 
-impl Follower {
+impl<S> Follower<S>
+where
+    S: StateMachine,
+{
     pub fn spawn(
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
-        log: Log,
-        sm_manager: StateMachineManager,
+        state: State<S>,
         mut tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
@@ -62,8 +63,7 @@ impl Follower {
             term,
             voted_for: None,
             deadline_clock,
-            sm_manager,
-            log: Some(log),
+            state: Some(state),
         }
     }
 
@@ -84,7 +84,8 @@ impl Follower {
         };
 
         let vote_granted = valid_term && valid_candidate && {
-            let log = self.log.as_ref().unwrap();
+            let state = self.state.as_ref().unwrap();
+            let log = state.log();
             let last_term = log.last_term();
             let last_index = log.last_index();
             (req.last_log_term, req.last_log_index) >= (last_term, last_index)
@@ -162,9 +163,9 @@ impl Follower {
         // invariant:
         //   req.term == self.term
 
-        let log = self.log.as_mut().unwrap();
+        let state = self.state.as_mut().unwrap();
         if req.prev_log_index > 0 {
-            let prev_log_entry = log.get(req.prev_log_index);
+            let prev_log_entry = state.log().get(req.prev_log_index);
             let prev_log_term = prev_log_entry.map(|e| e.term());
 
             if prev_log_term != Some(req.prev_log_term) {
@@ -188,11 +189,11 @@ impl Follower {
         let mut i = 0;
         for e in req.entries.iter() {
             let index = req.prev_log_index + 1 + i;
-            let term = log.get(index).map(|e| e.term());
+            let term = state.log().get(index).map(|e| e.term());
             match term {
                 Some(term) => {
                     if term != e.term {
-                        log.truncate(index);
+                        state.truncate_log(index);
                         break;
                     }
                 }
@@ -202,14 +203,9 @@ impl Follower {
             }
             i += 1;
         }
-        log.append(
-            req.entries
-                .into_iter()
-                .skip(i as usize)
-                .map(|e: pb::LogEntry| {
-                    LogEntry::new(e.term, Command::new(e.rpc.into(), e.body.into()))
-                }),
-        );
+        state.append_log_entries(req.entries.into_iter().skip(i as usize).map(
+            |e: pb::LogEntry| LogEntry::new(e.term, Command::new(e.rpc.into(), e.body.into())),
+        ));
         tracing::trace!(
             id = self.id,
             term = self.term,
@@ -219,15 +215,13 @@ impl Follower {
         );
 
         // commit log
-        let last_committed_index = log.last_committed();
-        let commit_index = cmp::min(req.last_committed_index, last_committed_index);
-        log.commit(commit_index);
+        let last_committed = state.commit(req.last_committed_index);
         tracing::trace!(
             id = self.id,
             term = self.term,
             target_id = req.leader_id,
             "commit log at index {}",
-            commit_index,
+            last_committed,
         );
 
         if let Err(e) = self.reset_deadline().await {
@@ -245,7 +239,7 @@ impl Follower {
         })
     }
 
-    pub fn extract_log(&mut self) -> Log {
-        self.log.take().unwrap()
+    pub fn extract_state(&mut self) -> State<S> {
+        self.state.take().unwrap()
     }
 }

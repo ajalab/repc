@@ -3,7 +3,7 @@ use crate::raft::node::Node;
 use crate::raft::pb::raft_server::RaftServer;
 use crate::raft::peer::grpc::RaftGrpcPeer;
 use crate::raft::service::RaftService;
-use crate::state::state_machine::{StateMachine, StateMachineManager};
+use crate::state::StateMachine;
 use crate::types::NodeId;
 use std::collections::HashMap;
 use std::error;
@@ -19,7 +19,7 @@ pub struct GrpcRepcGroup<S> {
 
 impl<S> GrpcRepcGroup<S>
 where
-    S: StateMachine + Send + 'static,
+    S: StateMachine + Send + Sync + 'static,
 {
     pub fn new(id: NodeId, conf: Configuration, state_machine: S) -> Self {
         GrpcRepcGroup {
@@ -32,8 +32,7 @@ where
     pub async fn run(self) -> Result<(), Box<dyn error::Error>> {
         let conf = Arc::new(self.conf);
         let node_conf = conf.group.nodes.get(&self.id).unwrap();
-        let sm_manager = StateMachineManager::spawn(self.state_machine);
-        let node = Node::new(self.id, sm_manager).conf(conf.clone());
+        let node = Node::new(self.id, self.state_machine).conf(conf.clone());
 
         // start raft server
         let raft_addr = SocketAddr::new(node_conf.ip, node_conf.raft_port);

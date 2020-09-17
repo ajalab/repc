@@ -6,7 +6,7 @@ use crate::raft::peer::service::RaftServicePeer;
 use crate::raft::peer::RaftPeer;
 use crate::raft::service::RaftService;
 use crate::service::RepcService;
-use crate::state::state_machine::{StateMachine, StateMachineManager};
+use crate::state::StateMachine;
 use crate::types::NodeId;
 use bytes::BytesMut;
 use std::collections::HashMap;
@@ -50,21 +50,16 @@ pub struct PartitionedLocalRepcGroup<S> {
 
 impl<S> PartitionedLocalRepcGroup<S>
 where
-    S: StateMachine + Send + 'static,
+    S: StateMachine + Send + Sync + 'static,
 {
     pub fn spawn(self) -> PartitionedLocalRaftGroupController<S::Service, impl RaftPeer> {
-        let sm_managers = self
-            .state_machines
-            .into_iter()
-            .map(|state_machine| StateMachineManager::spawn(state_machine))
-            .collect::<Vec<_>>();
-        let nodes: Vec<Node<RaftPartitionedPeer<_>>> = self
+        let nodes: Vec<Node<_, RaftPartitionedPeer<_>>> = self
             .confs
             .into_iter()
-            .zip(sm_managers.into_iter())
+            .zip(self.state_machines.into_iter())
             .enumerate()
-            .map(|(i, (conf, smm_sender))| {
-                Node::new(i as NodeId + 1, smm_sender).conf(Arc::new(conf))
+            .map(|(i, (conf, state_machine))| {
+                Node::new(i as NodeId + 1, state_machine).conf(Arc::new(conf))
             })
             .collect();
         let raft_services: Vec<RaftService> = nodes

@@ -1,28 +1,15 @@
 use prost::{DecodeError, EncodeError};
 use std::error;
 use std::fmt;
-#[derive(Debug)]
-pub enum ApplyError {
-    Never,
-}
 
-impl fmt::Display for ApplyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            ApplyError::Never => "never",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum StateMachineError {
     ManagerTerminated,
     ManagerCrashed,
     UnknownPath(String),
     DecodeRequestFailed(DecodeError),
     EncodeResponseFailed(EncodeError),
-    ApplyFailed(ApplyError),
+    ApplyFailed(tonic::Status),
 }
 
 impl fmt::Display for StateMachineError {
@@ -49,3 +36,13 @@ impl fmt::Display for StateMachineError {
 }
 
 impl error::Error for StateMachineError {}
+
+impl StateMachineError {
+    pub fn into_status(self) -> tonic::Status {
+        use StateMachineError::*;
+        match self {
+            ApplyFailed(status) => status,
+            _ => tonic::Status::internal(self.to_string()),
+        }
+    }
+}

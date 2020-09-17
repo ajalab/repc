@@ -31,7 +31,7 @@ pub enum Message {
 
     Command {
         command: Command,
-        tx: oneshot::Sender<Result<Bytes, CommandError>>,
+        tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     },
 
     ElectionTimeout,

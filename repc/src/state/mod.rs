@@ -1,45 +1,78 @@
+mod command;
+pub mod error;
 pub mod log;
-pub mod state_machine;
+mod rpc_id;
+mod state_machine;
+
+pub use command::Command;
+pub use rpc_id::RpcId;
+pub use state_machine::StateMachine;
 
 use bytes::Bytes;
+use error::StateMachineError;
+use log::{Log, LogEntry, LogIndex};
 
-#[derive(Clone)]
-pub struct RpcId(String);
-
-impl<T: ToString> From<T> for RpcId {
-    fn from(id: T) -> Self {
-        RpcId(id.to_string())
-    }
+pub struct State<S> {
+    log: Log,
+    state_machine: S,
+    last_applied: LogIndex,
+    last_committed: LogIndex,
 }
 
-impl From<RpcId> for String {
-    fn from(id: RpcId) -> Self {
-        id.0
-    }
-}
-
-impl AsRef<str> for RpcId {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
-#[derive(Clone)]
-pub struct Command {
-    rpc: RpcId,
-    body: Bytes,
-}
-
-impl Command {
-    pub fn new(rpc: RpcId, body: Bytes) -> Self {
-        Command { rpc, body }
+impl<S: StateMachine> State<S> {
+    pub fn new(state_machine: S) -> Self
+    where
+        S: StateMachine,
+    {
+        State {
+            log: Log::default(),
+            state_machine,
+            last_applied: LogIndex::default(),
+            last_committed: LogIndex::default(),
+        }
     }
 
-    pub fn rpc(&self) -> &RpcId {
-        &self.rpc
+    pub fn log(&self) -> &Log {
+        &self.log
     }
 
-    pub fn body(&self) -> &Bytes {
-        &self.body
+    pub fn last_index(&self) -> LogIndex {
+        self.log.last_index()
+    }
+
+    pub fn last_committed(&self) -> LogIndex {
+        self.last_committed
+    }
+
+    pub fn last_applied(&self) -> LogIndex {
+        self.last_applied
+    }
+
+    pub fn append_log_entries(&mut self, entries: impl Iterator<Item = LogEntry>) {
+        self.log.append(entries);
+    }
+
+    pub fn truncate_log(&mut self, i: LogIndex) {
+        self.log.truncate(i);
+    }
+
+    pub fn commit(&mut self, i: LogIndex) -> LogIndex {
+        if i > self.last_committed {
+            let last_committed = self.last_index().min(i);
+            self.last_committed = last_committed;
+        }
+        self.last_committed
+    }
+
+    pub fn apply(&mut self) -> Option<Result<tonic::Response<Bytes>, StateMachineError>> {
+        let i = self.last_applied + 1;
+        if i <= self.last_committed {
+            let entry = self.log.get(i)?;
+            let command = entry.command().clone();
+            self.last_applied += 1;
+            Some(self.state_machine.apply(command))
+        } else {
+            None
+        }
     }
 }

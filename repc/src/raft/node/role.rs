@@ -4,26 +4,30 @@ use super::follower::Follower;
 use super::leader::Leader;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
-use crate::state::log::Log;
 use crate::state::Command;
+use crate::state::State;
+use crate::state::StateMachine;
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::oneshot;
 
-pub enum Role {
-    Follower { follower: Follower },
-    Candidate { candidate: Candidate },
-    Leader { leader: Leader },
+pub enum Role<S> {
+    Follower { follower: Follower<S> },
+    Candidate { candidate: Candidate<S> },
+    Leader { leader: Leader<S> },
 }
 
-impl Role {
-    pub fn extract_log(&mut self) -> Log {
+impl<S> Role<S>
+where
+    S: StateMachine,
+{
+    pub fn extract_state(&mut self) -> State<S> {
         match self {
-            Role::Follower { follower } => follower.extract_log(),
-            Role::Candidate { candidate } => candidate.extract_log(),
-            Role::Leader { leader } => leader.extract_log(),
+            Role::Follower { follower } => follower.extract_state(),
+            Role::Candidate { candidate } => candidate.extract_state(),
+            Role::Leader { leader } => leader.extract_state(),
         }
     }
 
@@ -75,7 +79,7 @@ impl Role {
     pub async fn handle_command(
         &mut self,
         command: Command,
-        tx: oneshot::Sender<Result<Bytes, CommandError>>,
+        tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         match self {
             Role::Leader { ref mut leader } => {

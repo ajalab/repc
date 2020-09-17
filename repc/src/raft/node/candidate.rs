@@ -3,30 +3,34 @@ use crate::raft::deadline_clock::DeadlineClock;
 use crate::raft::message::Message;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
-use crate::state::log::Log;
+use crate::state::State;
+use crate::state::StateMachine;
 use crate::types::{NodeId, Term};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-pub struct Candidate {
+pub struct Candidate<S> {
     id: NodeId,
     term: Term,
     votes: HashSet<NodeId>,
     quorum: usize,
-    log: Option<Log>,
+    state: Option<State<S>>,
     tx: mpsc::Sender<Message>,
     _deadline_clock: DeadlineClock,
 }
 
-impl Candidate {
+impl<S> Candidate<S>
+where
+    S: StateMachine,
+{
     pub fn spawn(
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
         quorum: usize,
-        log: Log,
+        state: State<S>,
         tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
@@ -55,7 +59,7 @@ impl Candidate {
             term,
             votes,
             quorum,
-            log: Some(log),
+            state: Some(state),
             tx,
             _deadline_clock: deadline_clock,
         }
@@ -124,7 +128,7 @@ impl Candidate {
         &mut self,
         peers: &HashMap<NodeId, P>,
     ) {
-        let log = self.log.as_ref().unwrap();
+        let log = self.state.as_ref().unwrap().log();
         let last_log_term = log.last_term();
         let last_log_index = log.last_index();
         for (&id, peer) in peers.iter() {
@@ -176,7 +180,7 @@ impl Candidate {
         }
     }
 
-    pub fn extract_log(&mut self) -> Log {
-        self.log.take().unwrap()
+    pub fn extract_state(&mut self) -> State<S> {
+        self.state.take().unwrap()
     }
 }

@@ -1,9 +1,8 @@
 use crate::raft::message::Message;
 use crate::service::codec::IdentCodec;
 use crate::service::{Repc, RepcService};
-use crate::state::state_machine::error::{ApplyError, StateMachineError};
-use crate::state::state_machine::StateMachine;
-use crate::state::Command;
+use crate::state::error::StateMachineError;
+use crate::state::{Command, StateMachine};
 use bytes::{Bytes, BytesMut};
 use prost::Message as ProstMessage;
 use std::error::Error;
@@ -28,7 +27,7 @@ pub struct IncrResponse {
 }
 
 pub trait Incr {
-    fn incr(&mut self, req: IncrRequest) -> Result<tonic::Response<IncrResponse>, ApplyError>;
+    fn incr(&mut self, req: IncrRequest) -> Result<tonic::Response<IncrResponse>, tonic::Status>;
 }
 
 impl<S> StateMachine for S
@@ -61,7 +60,7 @@ pub struct IncrState {
 }
 
 impl Incr for IncrState {
-    fn incr(&mut self, req: IncrRequest) -> Result<tonic::Response<IncrResponse>, ApplyError> {
+    fn incr(&mut self, req: IncrRequest) -> Result<tonic::Response<IncrResponse>, tonic::Status> {
         self.n += req.i;
         Ok(tonic::Response::new(IncrResponse { n: self.n }))
     }

@@ -39,7 +39,7 @@ impl tonic::server::UnaryService<Bytes> for RepcUnaryService {
         let fut = async move {
             if tx.send(command).await.is_ok() {
                 match callback_rx.await {
-                    Ok(Ok(body)) => Ok(tonic::Response::new(body)),
+                    Ok(Ok(body)) => Ok(body),
                     Ok(Err(e)) => Err(e.into_status()),
                     Err(e) => Err(Status::internal(e.to_string())),
                 }

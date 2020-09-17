@@ -3,10 +3,11 @@ use crate::configuration::Configuration;
 use crate::configuration::LeaderConfiguration;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
-use crate::state::log::{Log, LogEntry};
-use crate::state::state_machine::StateMachineManager;
-use crate::state::Command;
-use crate::types::{LogIndex, NodeId, Term};
+use crate::state::log::{LogEntry, LogIndex};
+use crate::state::error::StateMachineError;
+use crate::state::StateMachine;
+use crate::state::{Command, State};
+use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use futures::future;
 use futures::{FutureExt, StreamExt};
@@ -19,29 +20,31 @@ use tokio::time;
 
 struct NotifyAppendToAppender;
 
-pub struct Leader {
+pub struct Leader<S> {
     id: NodeId,
     term: Term,
     appenders: Vec<Appender>,
     commit_manager: CommitManager,
-    log: Option<Arc<RwLock<Log>>>,
+    state: Option<Arc<RwLock<State<S>>>>,
 }
 
-impl Leader {
+impl<S> Leader<S>
+where
+    S: StateMachine + Send + Sync + 'static,
+{
     pub fn spawn<P: RaftPeer + Send + Sync + Clone + 'static>(
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
-        log: Log,
+        state: State<S>,
         peers: &HashMap<NodeId, P>,
-        sm_manager: StateMachineManager,
     ) -> Self {
         let leader_conf = Arc::new(conf.leader.clone());
-        let log = Arc::new(RwLock::new(log));
+        let state = Arc::new(RwLock::new(state));
 
         let nodes = iter::once(id).chain(peers.keys().copied());
         let (commit_manager, commit_manager_notifier) =
-            CommitManager::spawn(nodes, Arc::downgrade(&log), sm_manager);
+            CommitManager::spawn(nodes, Arc::downgrade(&state));
 
         let appenders = peers
             .iter()
@@ -59,7 +62,7 @@ impl Leader {
                     leader_conf.clone(),
                     target_id,
                     commit_manager_notifier.clone(),
-                    Arc::downgrade(&log),
+                    Arc::downgrade(&state),
                     peer.clone(),
                 )
             })
@@ -70,21 +73,26 @@ impl Leader {
             term,
             appenders,
             commit_manager,
-            log: Some(log),
+            state: Some(state),
         };
 
         leader
     }
+}
 
+impl<S> Leader<S>
+where
+    S: StateMachine,
+{
     pub async fn handle_command(
         &mut self,
         command: Command,
-        tx: oneshot::Sender<Result<Bytes, CommandError>>,
+        tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         let index = {
-            let mut log = self.log.as_ref().unwrap().write().await;
-            log.append(iter::once(LogEntry::new(self.term, command)));
-            log.last_index()
+            let mut state = self.state.as_ref().unwrap().write().await;
+            state.append_log_entries(iter::once(LogEntry::new(self.term, command)));
+            state.last_index()
         };
 
         tracing::trace!(
@@ -106,8 +114,8 @@ impl Leader {
         );
     }
 
-    pub fn extract_log(&mut self) -> Log {
-        Arc::try_unwrap(self.log.take().unwrap())
+    pub fn extract_state(&mut self) -> State<S> {
+        Arc::try_unwrap(self.state.take().unwrap())
             .ok()
             .expect("should have")
             .into_inner()
@@ -121,15 +129,19 @@ struct Appender {
 const APPENDER_CHANNEL_BUFFER_SIZE: usize = 10;
 
 impl Appender {
-    fn spawn<P: RaftPeer + Send + Sync + 'static>(
+    fn spawn<S, P>(
         id: NodeId,
         term: Term,
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         commit_manager_notifier: CommitManagerNotifier,
-        log: Weak<RwLock<Log>>,
+        state: Weak<RwLock<State<S>>>,
         peer: P,
-    ) -> Self {
+    ) -> Self
+    where
+        S: StateMachine + Send + Sync + 'static,
+        P: RaftPeer + Send + Sync + 'static,
+    {
         let (tx, rx) = mpsc::channel::<NotifyAppendToAppender>(APPENDER_CHANNEL_BUFFER_SIZE);
         let mut appender = Appender { tx };
         let process = AppenderProcess {
@@ -139,7 +151,7 @@ impl Appender {
             target_id,
             peer,
             commit_manager_notifier,
-            log,
+            state,
             rx,
         };
 
@@ -164,7 +176,7 @@ impl Appender {
     }
 }
 
-struct AppenderProcess<P: RaftPeer> {
+struct AppenderProcess<S, P> {
     id: NodeId,
     term: Term,
     conf: Arc<LeaderConfiguration>,
@@ -172,10 +184,14 @@ struct AppenderProcess<P: RaftPeer> {
     peer: P,
     rx: mpsc::Receiver<NotifyAppendToAppender>,
     commit_manager_notifier: CommitManagerNotifier,
-    log: Weak<RwLock<Log>>,
+    state: Weak<RwLock<State<S>>>,
 }
 
-impl<P: RaftPeer> AppenderProcess<P> {
+impl<S, P> AppenderProcess<S, P>
+where
+    S: StateMachine,
+    P: RaftPeer,
+{
     async fn run(mut self) {
         tracing::debug!(
             id = self.id,
@@ -185,10 +201,10 @@ impl<P: RaftPeer> AppenderProcess<P> {
         );
 
         let mut next_index = {
-            let log = self.log.upgrade();
-            let log = log.unwrap();
-            let log = log.read().await;
-            log.last_index() + 1
+            let state = self.state.upgrade();
+            let state = state.unwrap();
+            let state = state.read().await;
+            state.log().last_index() + 1
         };
         let mut match_index;
 
@@ -227,20 +243,20 @@ impl<P: RaftPeer> AppenderProcess<P> {
                 break;
             }
 
-            let log = match self.log.upgrade() {
-                Some(log) => log,
+            let state = match self.state.upgrade() {
+                Some(state) => state,
                 None => {
                     tracing::info!(
                         id = self.id,
                         term = self.term,
                         target_id = self.target_id,
-                        "can't read a log. likely not being a leader anymore",
+                        "can't read the state. likely not being a leader anymore",
                     );
                     break;
                 }
             };
-
-            let log = log.read().await;
+            let state = state.read().await;
+            let log = state.log();
 
             let prev_log_index = next_index - 1;
             let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
@@ -303,11 +319,26 @@ impl<P: RaftPeer> AppenderProcess<P> {
     }
 }
 
-#[derive(Clone)]
 struct Applied {
     index: LogIndex,
-    res: Bytes,
-    metadata: tonic::metadata::MetadataMap,
+    result: Result<tonic::Response<Bytes>, StateMachineError>,
+}
+
+impl Clone for Applied {
+    fn clone(&self) -> Self {
+        let result = match &self.result {
+            Ok(res) => {
+                let mut res_clone = tonic::Response::new(res.get_ref().clone());
+                *res_clone.metadata_mut() = res.metadata().clone();
+                Ok(res_clone)
+            }
+            Err(s) => Err(s.clone()),
+        };
+        Self {
+            index: self.index,
+            result,
+        }
+    }
 }
 
 struct Replicated {
@@ -321,16 +352,17 @@ struct CommitManager {
 }
 
 impl CommitManager {
-    fn spawn(
+    fn spawn<S>(
         nodes: impl Iterator<Item = NodeId>,
-        log: Weak<RwLock<Log>>,
-        sm_manager: StateMachineManager,
-    ) -> (Self, CommitManagerNotifier) {
+        state: Weak<RwLock<State<S>>>,
+    ) -> (Self, CommitManagerNotifier)
+    where
+        S: StateMachine + Send + Sync + 'static,
+    {
         let (tx_applied, rx_applied) = broadcast::channel(100);
         let (tx_replicated, rx_replicated) = mpsc::channel(100);
 
-        let process =
-            CommitManagerProcess::new(tx_applied.clone(), rx_replicated, nodes, log, sm_manager);
+        let process = CommitManagerProcess::new(tx_applied.clone(), rx_replicated, nodes, state);
         tokio::spawn(process.run());
 
         let commit_manager = CommitManager {
@@ -354,14 +386,16 @@ struct CommitManagerSubscription {
 }
 
 impl CommitManagerSubscription {
-    async fn wait_applied(self, index: LogIndex) -> Result<Bytes, CommandError> {
+    async fn wait_applied(self, index: LogIndex) -> Result<tonic::Response<Bytes>, CommandError> {
         let stream = self.rx.into_stream();
         tokio::pin!(stream);
 
         stream
             .filter_map(|applied| {
                 future::ready(match applied {
-                    Ok(applied) if applied.index >= index => Some(Ok(applied.res)),
+                    Ok(applied) if applied.index >= index => {
+                        Some(applied.result.map_err(CommandError::StateMachineError))
+                    }
                     Err(broadcast::RecvError::Closed) => Some(Err(CommandError::NotLeader)),
                     Err(broadcast::RecvError::Lagged(n)) => {
                         tracing::warn!("commit notification is lagging: {}", n);
@@ -391,34 +425,44 @@ impl CommitManagerNotifier {
     }
 }
 
-struct CommitManagerProcess {
+struct CommitManagerProcess<S> {
     tx_applied: broadcast::Sender<Applied>,
     rx_replicated: mpsc::Receiver<Replicated>,
     match_indices: HashMap<NodeId, LogIndex>,
-    log: Weak<RwLock<Log>>,
-    sm_manager: StateMachineManager,
+    state: Weak<RwLock<State<S>>>,
 }
 
-impl CommitManagerProcess {
+impl<S> CommitManagerProcess<S>
+where
+    S: StateMachine,
+{
     fn new(
         tx_applied: broadcast::Sender<Applied>,
         rx_replicated: mpsc::Receiver<Replicated>,
         nodes: impl Iterator<Item = NodeId>,
-        log: Weak<RwLock<Log>>,
-        sm_manager: StateMachineManager,
+        state: Weak<RwLock<State<S>>>,
     ) -> Self {
         let match_indices = nodes.zip(iter::repeat(LogIndex::default())).collect();
         Self {
             tx_applied,
             rx_replicated,
             match_indices,
-            log,
-            sm_manager,
+            state,
         }
     }
 
     async fn run(mut self) {
-        let mut committed = 0;
+        let state = match self.state.upgrade() {
+            Some(state) => state,
+            None => {
+                tracing::info!("failed to acquire strong reference to the state; likely not being a leader anymore");
+                return;
+            }
+        };
+        let state = state.as_ref().read().await;
+        let mut committed = state.last_committed();
+        drop(state);
+
         while let Some(replicated) = self.rx_replicated.recv().await {
             let s = self.match_indices.get_mut(&replicated.id).unwrap();
             *s = replicated.index;
@@ -428,48 +472,26 @@ impl CommitManagerProcess {
 
             let majority = *indices[indices.len() / 2];
             if majority > committed {
-                let log = match self.log.upgrade() {
-                    Some(log) => log,
+                let state = match self.state.upgrade() {
+                    Some(state) => state,
                     None => {
                         tracing::info!(
-                            "failed to acquire strong log reference; likely not being a leader anymore");
+                            "failed to acquire strong reference to the state; likely not being a leader anymore");
                         break;
                     }
                 };
-                let log = log.read().await;
-                let entries = log.get_range(committed + 1, majority);
-                tracing::trace!(
-                    "start committing {} entries: {}..={}",
-                    entries.len(),
-                    committed + 1,
-                    majority,
-                );
-                for entry in entries {
-                    let command = entry.command().clone();
-                    let mut res = match self.sm_manager.apply(command).await {
-                        Ok(res) => res,
-                        Err(e) => {
-                            tracing::error!("failed to apply command to the state machine: {}", e);
-                            break;
-                        }
-                    };
-                    let metadata = std::mem::take(res.metadata_mut());
-                    committed += 1;
-                    let applied = Applied {
-                        index: committed,
-                        res: res.into_inner(),
-                        metadata,
-                    };
+                let mut state = state.write().await;
+                committed = state.commit(majority);
+                tracing::trace!("new commit position: {}", committed);
+                while let Some(result) = state.apply() {
+                    let index = state.last_applied();
+                    tracing::trace!("applied: {}", index);
+                    let applied = Applied { index, result };
                     if let Err(_) = self.tx_applied.send(applied) {
                         tracing::info!("leader process has been terminated");
                         break;
                     }
                 }
-                tracing::trace!(
-                    "finished committing {} entries: committed = {}",
-                    entries.len(),
-                    committed,
-                );
             }
         }
     }

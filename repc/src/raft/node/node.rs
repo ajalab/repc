@@ -7,9 +7,8 @@ use crate::configuration::Configuration;
 use crate::raft::message::Message;
 use crate::raft::pb;
 use crate::raft::peer::RaftPeer;
-use crate::state::log::Log;
-use crate::state::state_machine::StateMachineManager;
-use crate::state::Command;
+use crate::state::StateMachine;
+use crate::state::{Command, State};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -17,23 +16,27 @@ use std::error;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-pub struct Node<P> {
+pub struct Node<S, P> {
     id: NodeId,
     conf: Arc<Configuration>,
-    sm_manager: StateMachineManager,
+    state: State<S>,
     peers: HashMap<NodeId, P>,
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
 }
 
-impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
-    pub fn new(id: NodeId, sm_manager: StateMachineManager) -> Self {
+impl<S, P> Node<S, P>
+where
+    S: StateMachine + Send + Sync + 'static,
+    P: RaftPeer + Clone + Send + Sync + 'static,
+{
+    pub fn new(id: NodeId, state_machine: S) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
         Self {
             id,
             conf: Arc::default(),
-            sm_manager,
+            state: State::new(state_machine),
             peers: HashMap::new(),
             tx,
             rx,
@@ -61,8 +64,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
                 self.id,
                 self.conf.clone(),
                 term,
-                Log::default(),
-                self.sm_manager.clone(),
+                self.state,
                 self.tx.clone(),
             ),
         };
@@ -73,29 +75,31 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> Node<P> {
             role,
             tx: self.tx,
             rx: self.rx,
-            sm_manager: self.sm_manager,
             peers: self.peers,
         };
         process.handle_messages().await
     }
 }
 
-struct NodeProcess<P: RaftPeer + Clone + Send + Sync + 'static> {
+struct NodeProcess<S, P> {
     id: NodeId,
     conf: Arc<Configuration>,
 
     // TODO: make these persistent
     term: Term,
 
-    role: Role,
+    role: Role<S>,
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
-    sm_manager: StateMachineManager,
     peers: HashMap<NodeId, P>,
 }
 
-impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
+impl<S, P> NodeProcess<S, P>
+where
+    S: StateMachine + Send + Sync + 'static,
+    P: RaftPeer + Clone + Send + Sync + 'static,
+{
     async fn handle_messages(&mut self) {
         while let Some(msg) = self.rx.recv().await {
             match msg {
@@ -201,7 +205,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
     async fn handle_command(
         &mut self,
         command: Command,
-        tx: oneshot::Sender<Result<Bytes, CommandError>>,
+        tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         tracing::trace!(id = self.id, term = self.term, "received a command");
         self.role.handle_command(command, tx).await;
@@ -215,8 +219,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
                 self.id,
                 self.conf.clone(),
                 self.term,
-                self.role.extract_log(),
-                self.sm_manager.clone(),
+                self.role.extract_state(),
                 self.tx.clone(),
             ),
         }
@@ -232,7 +235,7 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
                 self.conf.clone(),
                 self.term,
                 quorum,
-                self.role.extract_log(),
+                self.role.extract_state(),
                 self.tx.clone(),
             ),
         };
@@ -246,9 +249,8 @@ impl<P: RaftPeer + Clone + Send + Sync + 'static> NodeProcess<P> {
                 self.id,
                 self.conf.clone(),
                 self.term,
-                self.role.extract_log(),
+                self.role.extract_state(),
                 &self.peers,
-                self.sm_manager.clone(),
             ),
         };
     }

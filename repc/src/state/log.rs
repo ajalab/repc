@@ -1,6 +1,7 @@
 use crate::state::Command;
-use crate::types::{LogIndex, Term};
+use crate::types::Term;
 
+pub type LogIndex = u64;
 pub struct LogEntry {
     term: Term,
     command: Command,
@@ -50,8 +51,11 @@ impl Log {
     }
 
     // Append log entries
-    pub fn append(&mut self, entries: impl Iterator<Item = LogEntry>) {
+    pub fn append(&mut self, entries: impl Iterator<Item = LogEntry>) -> LogIndex {
+        let before = self.entries.len();
         self.entries.extend(entries);
+        let after = self.entries.len();
+        (after - before) as LogIndex
     }
 
     // Truncates the log so that it drops the entry at the given index and all that follows it.
