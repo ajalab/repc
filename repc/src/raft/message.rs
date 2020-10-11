@@ -1,5 +1,5 @@
 use super::node::error::CommandError;
-use super::pb::{
+use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::state::Command;

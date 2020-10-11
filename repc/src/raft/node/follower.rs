@@ -1,7 +1,10 @@
 use crate::configuration::Configuration;
+use crate::pb::raft::LogEntry as PbLogEntry;
+use crate::pb::raft::{
+    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+};
 use crate::raft::deadline_clock::DeadlineClock;
 use crate::raft::message::Message;
-use crate::raft::pb;
 use crate::state::log::LogEntry;
 use crate::state::Command;
 use crate::state::State;
@@ -73,8 +76,8 @@ where
 
     pub async fn handle_request_vote_request(
         &mut self,
-        req: pb::RequestVoteRequest,
-    ) -> Result<pb::RequestVoteResponse, Box<dyn error::Error + Send>> {
+        req: RequestVoteRequest,
+    ) -> Result<RequestVoteResponse, Box<dyn error::Error + Send>> {
         // invariant: req.term <= self.term
 
         let valid_term = req.term == self.term;
@@ -132,7 +135,7 @@ where
             );
         }
 
-        Ok(pb::RequestVoteResponse {
+        Ok(RequestVoteResponse {
             term: self.term,
             vote_granted,
         })
@@ -140,8 +143,8 @@ where
 
     pub async fn handle_append_entries_request(
         &mut self,
-        req: pb::AppendEntriesRequest,
-    ) -> Result<pb::AppendEntriesResponse, Box<dyn error::Error + Send>> {
+        req: AppendEntriesRequest,
+    ) -> Result<AppendEntriesResponse, Box<dyn error::Error + Send>> {
         // invariant:
         //   req.term <= self.term
 
@@ -154,7 +157,7 @@ where
                 req.leader_id,
                 req.term,
             );
-            return Ok(pb::AppendEntriesResponse {
+            return Ok(AppendEntriesResponse {
                 term: self.term,
                 success: false,
             });
@@ -178,7 +181,7 @@ where
                     req.prev_log_term,
                     prev_log_term.unwrap_or(0),
                 );
-                return Ok(pb::AppendEntriesResponse {
+                return Ok(AppendEntriesResponse {
                     term: self.term,
                     success: false,
                 });
@@ -203,9 +206,14 @@ where
             }
             i += 1;
         }
-        state.append_log_entries(req.entries.into_iter().skip(i as usize).map(
-            |e: pb::LogEntry| LogEntry::new(e.term, Command::new(e.rpc.into(), e.body.into())),
-        ));
+        state.append_log_entries(
+            req.entries
+                .into_iter()
+                .skip(i as usize)
+                .map(|e: PbLogEntry| {
+                    LogEntry::new(e.term, Command::new(e.rpc.into(), e.body.into()))
+                }),
+        );
         tracing::trace!(
             id = self.id,
             term = self.term,
@@ -233,7 +241,7 @@ where
             );
         };
 
-        Ok(pb::AppendEntriesResponse {
+        Ok(AppendEntriesResponse {
             term: self.term,
             success: true,
         })

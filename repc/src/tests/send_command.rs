@@ -2,7 +2,7 @@ use super::app::{IncrRequest, IncrResponse, IncrState};
 use super::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
-use crate::raft::pb::{AppendEntriesRequest, AppendEntriesResponse};
+use crate::pb::raft::{AppendEntriesRequest, AppendEntriesResponse};
 
 #[tokio::test]
 async fn send_command() {
@@ -39,15 +39,15 @@ async fn send_command() {
     let mut controller = group.spawn();
 
     // Node 1 collects votes from 2 and becomes a leader
-    controller.pass_request(1, 2).await.unwrap();
-    controller.discard_request(1, 3).await.unwrap();
-    controller.pass_response(2, 1).await.unwrap();
+    controller.pass_request_vote_request(1, 2).await.unwrap();
+    controller.block_request_vote_request(1, 3).await.unwrap();
+    controller.pass_append_entries_response(2, 1).await.unwrap();
 
     // Node 1 sends initial heartbeats to 2, 3
-    controller.pass_request(1, 2).await.unwrap();
-    controller.pass_request(1, 3).await.unwrap();
-    controller.pass_response(2, 1).await.unwrap();
-    controller.pass_response(3, 1).await.unwrap();
+    controller.pass_append_entries_request(1, 2).await.unwrap();
+    controller.pass_append_entries_request(1, 3).await.unwrap();
+    controller.pass_append_entries_response(2, 1).await.unwrap();
+    controller.pass_append_entries_response(3, 1).await.unwrap();
 
     // Send a command to node 1
     controller

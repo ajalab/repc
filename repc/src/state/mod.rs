@@ -19,11 +19,8 @@ pub struct State<S> {
     last_committed: LogIndex,
 }
 
-impl<S: StateMachine> State<S> {
-    pub fn new(state_machine: S) -> Self
-    where
-        S: StateMachine,
-    {
+impl<S> State<S> {
+    pub fn new(state_machine: S) -> Self {
         State {
             log: Log::default(),
             state_machine,
@@ -31,7 +28,9 @@ impl<S: StateMachine> State<S> {
             last_committed: LogIndex::default(),
         }
     }
+}
 
+impl<S: StateMachine> State<S> {
     pub fn log(&self) -> &Log {
         &self.log
     }

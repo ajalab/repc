@@ -1,15 +1,16 @@
 use crate::configuration::Configuration;
+use crate::pb::raft::raft_client::RaftClient;
+use crate::pb::raft::raft_server::RaftServer;
 use crate::raft::node::Node;
-use crate::raft::pb::raft_server::RaftServer;
-use crate::raft::peer::grpc::RaftGrpcPeer;
-use crate::raft::service::RaftService;
+use crate::service::raft::RaftService;
 use crate::state::StateMachine;
 use crate::types::NodeId;
+use http::Uri;
 use std::collections::HashMap;
 use std::error;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tonic::transport::Server;
+use tonic::transport::{Channel, Server};
 
 pub struct GrpcRepcGroup<S> {
     id: NodeId,
@@ -49,24 +50,21 @@ where
         // tokio::spawn(repc_server.serve(repc_addr));
 
         // set up connections to other nodes
-        let mut ids = Vec::new();
-        let mut peer_futures = Vec::new();
+        let mut clients = HashMap::new();
         for (&id, conf) in conf.group.nodes.iter() {
             if id == self.id {
                 continue;
             }
-            ids.push(id);
-            let addr = SocketAddr::new(conf.ip, conf.raft_port);
-            peer_futures.push(RaftGrpcPeer::connect(addr.to_string()));
+            let authority = format!("{}:{}", conf.ip, conf.raft_port);
+            let uri = Uri::builder()
+                .scheme("http")
+                .authority(authority.as_bytes())
+                .build()?;
+            let channel = Channel::builder(uri).connect_lazy()?;
+            clients.insert(id, RaftClient::new(channel));
         }
 
-        let result = futures::future::try_join_all(peer_futures).await;
-        let peers = result
-            .map(|peers| ids.into_iter().zip(peers).collect::<Vec<_>>())?
-            .into_iter()
-            .collect::<HashMap<NodeId, RaftGrpcPeer>>();
-
-        node.peers(peers).run().await;
+        node.clients(clients).run().await;
         Ok(())
     }
 }

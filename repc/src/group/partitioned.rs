@@ -1,11 +1,13 @@
 use crate::configuration::Configuration;
+use crate::pb::raft::raft_client::RaftClient;
+use crate::pb::raft::raft_server::{Raft, RaftServer};
+use crate::pb::raft::{
+    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+};
 use crate::raft::node::Node;
-use crate::raft::peer::error::PeerError;
-use crate::raft::peer::partitioned::{self, RaftPartitionedPeer, RaftPartitionedPeerController};
-use crate::raft::peer::service::RaftServicePeer;
-use crate::raft::peer::RaftPeer;
-use crate::raft::service::RaftService;
-use crate::service::RepcService;
+use crate::service::raft::partitioned::{error::HandleError, partition, Handle};
+use crate::service::raft::RaftService;
+use crate::service::repc::RepcService;
 use crate::state::StateMachine;
 use crate::types::NodeId;
 use bytes::BytesMut;
@@ -52,130 +54,148 @@ impl<S> PartitionedLocalRepcGroup<S>
 where
     S: StateMachine + Send + Sync + 'static,
 {
-    pub fn spawn(self) -> PartitionedLocalRaftGroupController<S::Service, impl RaftPeer> {
-        let nodes: Vec<Node<_, RaftPartitionedPeer<_>>> = self
+    pub fn spawn(self) -> PartitionedLocalRaftGroupHandle<S::Service, impl Raft> {
+        const BUFFER: usize = 10;
+
+        let nodes: HashMap<NodeId, _> = self
             .confs
             .into_iter()
             .zip(self.state_machines.into_iter())
             .enumerate()
             .map(|(i, (conf, state_machine))| {
-                Node::new(i as NodeId + 1, state_machine).conf(Arc::new(conf))
+                let id = i as NodeId + 1;
+                let node = Node::new(id, state_machine).conf(Arc::new(conf));
+                (id, node)
             })
             .collect();
-        let raft_services: Vec<RaftService> = nodes
-            .iter()
-            .map(|node| RaftService::new(node.get_tx()))
-            .collect();
-        let repc_services: HashMap<NodeId, S::Service> = nodes
-            .iter()
-            .enumerate()
-            .map(|(i, node)| (i as NodeId + 1, S::Service::from_tx(node.get_tx())))
-            .collect();
-        let n = nodes.len() as NodeId;
 
-        let mut peers = vec![];
-        let mut controllers = HashMap::new();
-        for i in 1..=n {
-            let i = i as NodeId;
-            let mut ps = HashMap::new();
-            let mut cs = HashMap::new();
-            for (j, service) in raft_services.iter().enumerate() {
-                let j = (j + 1) as NodeId;
-                if i == j {
+        let raft_services: HashMap<_, _> = nodes
+            .iter()
+            .map(|(&id, node)| (id, RaftService::new(node.get_tx())))
+            .collect();
+
+        let mut raft_clients = HashMap::new();
+        let mut raft_client_handles = HashMap::new();
+        for (&src_id, service) in &raft_services {
+            let mut clients = HashMap::new();
+            let mut handles = HashMap::new();
+            for &dst_id in nodes.keys() {
+                if src_id == dst_id {
                     continue;
                 }
-                let inner = RaftServicePeer::new(service.clone());
-                let (peer, controller) = partitioned::peer(inner, 10);
-                ps.insert(j as NodeId, peer);
-                cs.insert(j as NodeId, controller);
+                let (service, handle) = partition(service.clone(), BUFFER);
+                let server = RaftServer::new(service);
+                let client = RaftClient::new(server);
+                clients.insert(dst_id, client);
+                handles.insert(dst_id, handle);
             }
-            peers.push(ps);
-            controllers.insert(i, cs);
+            raft_clients.insert(src_id, clients);
+            raft_client_handles.insert(src_id, handles);
         }
 
-        for (node, peers) in nodes.into_iter().zip(peers.into_iter()) {
-            tokio::spawn(node.peers(peers).run());
+        let repc_services: HashMap<NodeId, S::Service> = nodes
+            .iter()
+            .map(|(&i, node)| (i, S::Service::from_tx(node.get_tx())))
+            .collect();
+
+        for (id, node) in nodes.into_iter() {
+            let clients = raft_clients.remove(&id).unwrap();
+            tokio::spawn(node.clients(clients).run());
         }
 
-        PartitionedLocalRaftGroupController {
-            controllers,
+        PartitionedLocalRaftGroupHandle {
+            handles: raft_client_handles,
             repc_services,
         }
     }
 }
 
-pub struct PartitionedLocalRaftGroupController<S, P> {
-    controllers: HashMap<NodeId, HashMap<NodeId, RaftPartitionedPeerController<P>>>,
+pub struct PartitionedLocalRaftGroupHandle<S, R> {
+    handles: HashMap<NodeId, HashMap<NodeId, Handle<R>>>,
     repc_services: HashMap<NodeId, S>,
 }
 
-impl<S, P> PartitionedLocalRaftGroupController<S, P>
+impl<S, R> PartitionedLocalRaftGroupHandle<S, R>
 where
     S: RepcService + Service<http::Request<BoxBody>>,
-    P: RaftPeer + Send + Sync,
+    R: Raft,
 {
-    fn peer(&mut self, i: NodeId, j: NodeId) -> &mut RaftPartitionedPeerController<P> {
-        self.controllers.get_mut(&i).unwrap().get_mut(&j).unwrap()
+    fn handle(&mut self, i: NodeId, j: NodeId) -> &mut Handle<R> {
+        self.handles.get_mut(&i).unwrap().get_mut(&j).unwrap()
     }
 
-    pub async fn pass_request(
+    pub async fn pass_request_vote_request(
         &mut self,
         i: NodeId,
         j: NodeId,
-    ) -> Result<partitioned::Request, PeerError> {
-        self.peer(i, j).pass_request().await
+    ) -> Result<tonic::Request<RequestVoteRequest>, HandleError> {
+        self.handle(i, j).pass_request_vote_request().await
     }
 
-    pub async fn pass_response(
+    pub async fn pass_append_entries_request(
         &mut self,
         i: NodeId,
         j: NodeId,
-    ) -> Result<partitioned::Response, PeerError> {
-        self.peer(j, i).pass_response().await
+    ) -> Result<tonic::Request<AppendEntriesRequest>, HandleError> {
+        self.handle(i, j).pass_append_entries_request().await
     }
 
-    pub async fn discard_request(
+    pub async fn block_request_vote_request(
         &mut self,
         i: NodeId,
         j: NodeId,
-    ) -> Result<partitioned::Request, PeerError> {
-        self.peer(i, j).discard_request().await
+    ) -> Result<tonic::Request<RequestVoteRequest>, HandleError> {
+        self.handle(i, j).block_request_vote_request().await
     }
 
-    pub async fn discard_response(
+    pub async fn block_append_entries_request(
         &mut self,
         i: NodeId,
         j: NodeId,
-    ) -> Result<partitioned::Response, PeerError> {
-        self.peer(j, i).discard_response().await
+    ) -> Result<tonic::Request<AppendEntriesRequest>, HandleError> {
+        self.handle(i, j).block_append_entries_request().await
     }
 
-    pub async fn pass_next_request(
+    pub async fn pass_request_vote_response(
         &mut self,
         i: NodeId,
         j: NodeId,
-        verifier: impl Fn(partitioned::Request) -> () + Send + Sync + 'static,
-    ) {
-        self.peer(i, j).pass_next_request(verifier).await;
+    ) -> Result<Result<tonic::Response<RequestVoteResponse>, tonic::Status>, HandleError> {
+        self.handle(j, i).pass_request_vote_response().await
     }
 
-    pub async fn pass_next_response(
+    pub async fn pass_append_entries_response(
         &mut self,
         i: NodeId,
         j: NodeId,
-        verifier: impl Fn(partitioned::Response) -> () + Send + Sync + 'static,
-    ) {
-        self.peer(j, i).pass_next_response(verifier).await;
+    ) -> Result<Result<tonic::Response<AppendEntriesResponse>, tonic::Status>, HandleError> {
+        self.handle(j, i).pass_append_entries_response().await
     }
 
-    pub async fn unary<R, T1, T2>(
+    pub async fn block_request_vote_response(
         &mut self,
         i: NodeId,
-        rpc: R,
+        j: NodeId,
+    ) -> Result<Result<tonic::Response<RequestVoteResponse>, tonic::Status>, HandleError> {
+        self.handle(j, i).block_request_vote_response().await
+    }
+
+    pub async fn block_append_entries_response(
+        &mut self,
+        i: NodeId,
+        j: NodeId,
+    ) -> Result<Result<tonic::Response<AppendEntriesResponse>, tonic::Status>, HandleError> {
+        self.handle(j, i).block_append_entries_response().await
+    }
+
+    pub async fn unary<C, T1, T2>(
+        &mut self,
+        i: NodeId,
+        rpc: C,
         command: T1,
     ) -> Result<tonic::Response<T2>, Status>
     where
-        R: AsRef<str>,
+        C: AsRef<str>,
         T1: prost::Message,
         T2: prost::Message + Default,
     {

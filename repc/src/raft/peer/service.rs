@@ -1,6 +1,6 @@
 use super::error::PeerError;
 use super::RaftPeer;
-use crate::raft::pb::{
+use crate::pb::raft::{
     raft_server::Raft, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
 };

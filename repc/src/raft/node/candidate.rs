@@ -1,8 +1,8 @@
 use crate::configuration::Configuration;
+use crate::pb::raft::raft_client::RaftClient;
+use crate::pb::raft::{RequestVoteRequest, RequestVoteResponse};
 use crate::raft::deadline_clock::DeadlineClock;
 use crate::raft::message::Message;
-use crate::raft::pb;
-use crate::raft::peer::RaftPeer;
 use crate::state::State;
 use crate::state::StateMachine;
 use crate::types::{NodeId, Term};
@@ -10,6 +10,9 @@ use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tonic::body::BoxBody;
+use tonic::client::GrpcService;
+use tonic::codegen::StdError;
 
 pub struct Candidate<S> {
     id: NodeId,
@@ -67,7 +70,7 @@ where
 
     pub async fn handle_request_vote_response(
         &mut self,
-        res: pb::RequestVoteResponse,
+        res: RequestVoteResponse,
         id: NodeId,
     ) -> bool {
         if self.term != res.term {
@@ -124,15 +127,17 @@ where
         return false;
     }
 
-    pub async fn handle_election_timeout<P: RaftPeer + Send + Sync + Clone + 'static>(
-        &mut self,
-        peers: &HashMap<NodeId, P>,
-    ) {
+    pub async fn handle_election_timeout<T>(&mut self, clients: &HashMap<NodeId, RaftClient<T>>)
+    where
+        T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
+        T::Future: Send,
+        <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
+    {
         let log = self.state.as_ref().unwrap().log();
         let last_log_term = log.last_term();
         let last_log_index = log.last_index();
-        for (&id, peer) in peers.iter() {
-            let mut peer = peer.clone();
+        for (&id, client) in clients.iter() {
+            let mut client = client.clone();
             let mut tx = self.tx.clone();
             let term = self.term;
             let candidate_id = self.id;
@@ -144,8 +149,8 @@ where
                     "sending RequestVoteRequest to {}",
                     id,
                 );
-                let res = peer
-                    .request_vote(pb::RequestVoteRequest {
+                let res = client
+                    .request_vote(RequestVoteRequest {
                         term,
                         candidate_id,
                         last_log_index,
@@ -155,7 +160,12 @@ where
 
                 match res {
                     Ok(res) => {
-                        let r = tx.send(Message::RPCRequestVoteResponse { res, id }).await;
+                        let r = tx
+                            .send(Message::RPCRequestVoteResponse {
+                                res: res.into_inner(),
+                                id,
+                            })
+                            .await;
                         if let Err(e) = r {
                             tracing::error!(
                                 id = candidate_id,

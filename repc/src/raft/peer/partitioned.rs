@@ -1,6 +1,6 @@
 use super::error::PeerError;
 use super::RaftPeer;
-use crate::raft::pb::{
+use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use std::borrow::BorrowMut;

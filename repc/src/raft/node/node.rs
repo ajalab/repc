@@ -4,9 +4,11 @@ use super::follower;
 use super::leader;
 use super::role::Role;
 use crate::configuration::Configuration;
+use crate::pb::raft::raft_client::RaftClient;
+use crate::pb::raft::{
+    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+};
 use crate::raft::message::Message;
-use crate::raft::pb;
-use crate::raft::peer::RaftPeer;
 use crate::state::StateMachine;
 use crate::state::{Command, State};
 use crate::types::{NodeId, Term};
@@ -15,21 +17,20 @@ use std::collections::HashMap;
 use std::error;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
+use tonic::body::BoxBody;
+use tonic::client::GrpcService;
+use tonic::codegen::StdError;
 
-pub struct Node<S, P> {
+pub struct Node<S, T> {
     id: NodeId,
     conf: Arc<Configuration>,
     state: State<S>,
-    peers: HashMap<NodeId, P>,
+    clients: HashMap<NodeId, RaftClient<T>>,
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
 }
 
-impl<S, P> Node<S, P>
-where
-    S: StateMachine + Send + Sync + 'static,
-    P: RaftPeer + Clone + Send + Sync + 'static,
-{
+impl<S, T> Node<S, T> {
     pub fn new(id: NodeId, state_machine: S) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
@@ -37,7 +38,7 @@ where
             id,
             conf: Arc::default(),
             state: State::new(state_machine),
-            peers: HashMap::new(),
+            clients: HashMap::new(),
             tx,
             rx,
         }
@@ -48,15 +49,23 @@ where
         self
     }
 
-    pub fn peers(mut self, peers: HashMap<NodeId, P>) -> Self {
-        self.peers = peers;
+    pub fn clients(mut self, clients: HashMap<NodeId, RaftClient<T>>) -> Self {
+        self.clients = clients;
         self
     }
 
     pub fn get_tx(&self) -> mpsc::Sender<Message> {
         return self.tx.clone();
     }
+}
 
+impl<S, T> Node<S, T>
+where
+    S: StateMachine + Send + Sync + 'static,
+    T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
+    T::Future: Send,
+    <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
+{
     pub async fn run(self) {
         let term = 1;
         let role = Role::Follower {
@@ -75,13 +84,13 @@ where
             role,
             tx: self.tx,
             rx: self.rx,
-            peers: self.peers,
+            clients: self.clients,
         };
         process.handle_messages().await
     }
 }
 
-struct NodeProcess<S, P> {
+struct NodeProcess<S, T> {
     id: NodeId,
     conf: Arc<Configuration>,
 
@@ -92,13 +101,15 @@ struct NodeProcess<S, P> {
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
-    peers: HashMap<NodeId, P>,
+    clients: HashMap<NodeId, RaftClient<T>>,
 }
 
-impl<S, P> NodeProcess<S, P>
+impl<S, T> NodeProcess<S, T>
 where
     S: StateMachine + Send + Sync + 'static,
-    P: RaftPeer + Clone + Send + Sync + 'static,
+    T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
+    T::Future: Send,
+    <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
 {
     async fn handle_messages(&mut self) {
         while let Some(msg) = self.rx.recv().await {
@@ -142,8 +153,8 @@ where
 
     async fn handle_request_vote_request(
         &mut self,
-        req: pb::RequestVoteRequest,
-        mut tx: mpsc::Sender<Result<pb::RequestVoteResponse, Box<dyn error::Error + Send>>>,
+        req: RequestVoteRequest,
+        mut tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
     ) {
         self.update_term(req.candidate_id, req.term);
         let res = self.role.handle_request_vote_request(req).await;
@@ -164,7 +175,7 @@ where
         });
     }
 
-    async fn handle_request_vote_response(&mut self, res: pb::RequestVoteResponse, id: NodeId) {
+    async fn handle_request_vote_response(&mut self, res: RequestVoteResponse, id: NodeId) {
         if self.role.handle_request_vote_response(res, id).await {
             self.trans_state_leader();
         }
@@ -172,8 +183,8 @@ where
 
     async fn handle_append_entries_request(
         &mut self,
-        req: pb::AppendEntriesRequest,
-        mut tx: mpsc::Sender<Result<pb::AppendEntriesResponse, Box<dyn error::Error + Send>>>,
+        req: AppendEntriesRequest,
+        mut tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
     ) {
         self.update_term(req.leader_id, req.term);
         let res = self.role.handle_append_entries_request(req).await;
@@ -199,7 +210,7 @@ where
         self.term += 1;
         self.trans_state_candidate();
 
-        self.role.handle_election_timeout(&self.peers).await;
+        self.role.handle_election_timeout(&self.clients).await;
     }
 
     async fn handle_command(
@@ -228,7 +239,7 @@ where
     fn trans_state_candidate(&mut self) {
         tracing::info!(id = self.id, term = self.term, "become a candidate");
 
-        let quorum = (self.peers.len() + 1) / 2;
+        let quorum = (self.clients.len() + 1) / 2;
         self.role = Role::Candidate {
             candidate: candidate::Candidate::spawn(
                 self.id,
@@ -250,7 +261,7 @@ where
                 self.conf.clone(),
                 self.term,
                 self.role.extract_state(),
-                &self.peers,
+                &self.clients,
             ),
         };
     }

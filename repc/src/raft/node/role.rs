@@ -2,8 +2,10 @@ use super::candidate::Candidate;
 use super::error::CommandError;
 use super::follower::Follower;
 use super::leader::Leader;
-use crate::raft::pb;
-use crate::raft::peer::RaftPeer;
+use crate::pb::raft::raft_client::RaftClient;
+use crate::pb::raft::{
+    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+};
 use crate::state::Command;
 use crate::state::State;
 use crate::state::StateMachine;
@@ -12,6 +14,9 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::oneshot;
+use tonic::body::BoxBody;
+use tonic::client::GrpcService;
+use tonic::codegen::StdError;
 
 pub enum Role<S> {
     Follower { follower: Follower<S> },
@@ -33,8 +38,8 @@ where
 
     pub async fn handle_request_vote_request(
         &mut self,
-        req: pb::RequestVoteRequest,
-    ) -> Result<pb::RequestVoteResponse, Box<dyn Error + Send>> {
+        req: RequestVoteRequest,
+    ) -> Result<RequestVoteResponse, Box<dyn Error + Send>> {
         match self {
             Role::Follower { ref mut follower } => follower.handle_request_vote_request(req).await,
             _ => unimplemented!(),
@@ -43,7 +48,7 @@ where
 
     pub async fn handle_request_vote_response(
         &mut self,
-        res: pb::RequestVoteResponse,
+        res: RequestVoteResponse,
         id: NodeId,
     ) -> bool {
         match self {
@@ -56,8 +61,8 @@ where
 
     pub async fn handle_append_entries_request(
         &mut self,
-        req: pb::AppendEntriesRequest,
-    ) -> Result<pb::AppendEntriesResponse, Box<dyn Error + Send>> {
+        req: AppendEntriesRequest,
+    ) -> Result<AppendEntriesResponse, Box<dyn Error + Send>> {
         match self {
             Role::Follower { ref mut follower } => {
                 follower.handle_append_entries_request(req).await
@@ -66,12 +71,16 @@ where
         }
     }
 
-    pub async fn handle_election_timeout<P: RaftPeer + Send + Sync + Clone + 'static>(
-        &mut self,
-        peers: &HashMap<NodeId, P>,
-    ) {
+    pub async fn handle_election_timeout<T>(&mut self, clients: &HashMap<NodeId, RaftClient<T>>)
+    where
+        T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
+        T::Future: Send,
+        <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
+    {
         match self {
-            Role::Candidate { ref mut candidate } => candidate.handle_election_timeout(peers).await,
+            Role::Candidate { ref mut candidate } => {
+                candidate.handle_election_timeout(clients).await
+            }
             _ => unimplemented!(),
         }
     }

@@ -1,6 +1,6 @@
 use crate::raft::message::Message;
-use crate::service::codec::IdentCodec;
-use crate::service::{Repc, RepcService};
+use crate::service::repc::codec::IdentCodec;
+use crate::service::repc::{Repc, RepcService};
 use crate::state::error::StateMachineError;
 use crate::state::{Command, StateMachine};
 use bytes::{Bytes, BytesMut};

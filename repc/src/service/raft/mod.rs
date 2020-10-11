@@ -1,8 +1,11 @@
-use super::message::Message;
-use super::pb::raft_server::Raft;
-use super::pb::{
+#[cfg(test)]
+pub mod partitioned;
+
+use crate::pb::raft::raft_server::Raft;
+use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
+use crate::raft::message::Message;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 

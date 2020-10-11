@@ -1,6 +1,6 @@
 use super::command::Command;
 use super::error::StateMachineError;
-use crate::service::RepcService;
+use crate::service::repc::RepcService;
 use bytes::Bytes;
 
 pub trait StateMachine {

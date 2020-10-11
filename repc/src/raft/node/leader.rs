@@ -1,10 +1,11 @@
 use super::error::CommandError;
 use crate::configuration::Configuration;
 use crate::configuration::LeaderConfiguration;
-use crate::raft::pb;
-use crate::raft::peer::RaftPeer;
-use crate::state::log::{LogEntry, LogIndex};
+use crate::pb::raft::raft_client::RaftClient;
+use crate::pb::raft::AppendEntriesRequest;
+use crate::pb::raft::LogEntry as PbLogEntry;
 use crate::state::error::StateMachineError;
+use crate::state::log::{LogEntry, LogIndex};
 use crate::state::StateMachine;
 use crate::state::{Command, State};
 use crate::types::{NodeId, Term};
@@ -17,6 +18,9 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, oneshot, RwLock};
 use tokio::time;
+use tonic::body::BoxBody;
+use tonic::client::GrpcService;
+use tonic::codegen::StdError;
 
 struct NotifyAppendToAppender;
 
@@ -32,23 +36,28 @@ impl<S> Leader<S>
 where
     S: StateMachine + Send + Sync + 'static,
 {
-    pub fn spawn<P: RaftPeer + Send + Sync + Clone + 'static>(
+    pub fn spawn<T>(
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
         state: State<S>,
-        peers: &HashMap<NodeId, P>,
-    ) -> Self {
+        clients: &HashMap<NodeId, RaftClient<T>>,
+    ) -> Self
+    where
+        T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
+        T::Future: Send,
+        <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
+    {
         let leader_conf = Arc::new(conf.leader.clone());
         let state = Arc::new(RwLock::new(state));
 
-        let nodes = iter::once(id).chain(peers.keys().copied());
+        let nodes = iter::once(id).chain(clients.keys().copied());
         let (commit_manager, commit_manager_notifier) =
             CommitManager::spawn(nodes, Arc::downgrade(&state));
 
-        let appenders = peers
+        let appenders = clients
             .iter()
-            .map(|(&target_id, peer)| {
+            .map(|(&target_id, client)| {
                 tracing::debug!(
                     id,
                     term,
@@ -63,7 +72,7 @@ where
                     target_id,
                     commit_manager_notifier.clone(),
                     Arc::downgrade(&state),
-                    peer.clone(),
+                    client.clone(),
                 )
             })
             .collect::<Vec<_>>();
@@ -129,18 +138,20 @@ struct Appender {
 const APPENDER_CHANNEL_BUFFER_SIZE: usize = 10;
 
 impl Appender {
-    fn spawn<S, P>(
+    fn spawn<S, T>(
         id: NodeId,
         term: Term,
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         commit_manager_notifier: CommitManagerNotifier,
         state: Weak<RwLock<State<S>>>,
-        peer: P,
+        client: RaftClient<T>,
     ) -> Self
     where
         S: StateMachine + Send + Sync + 'static,
-        P: RaftPeer + Send + Sync + 'static,
+        T: GrpcService<BoxBody> + Send + Sync + 'static,
+        T::Future: Send,
+        <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
     {
         let (tx, rx) = mpsc::channel::<NotifyAppendToAppender>(APPENDER_CHANNEL_BUFFER_SIZE);
         let mut appender = Appender { tx };
@@ -149,7 +160,7 @@ impl Appender {
             term,
             conf,
             target_id,
-            peer,
+            client,
             commit_manager_notifier,
             state,
             rx,
@@ -176,21 +187,23 @@ impl Appender {
     }
 }
 
-struct AppenderProcess<S, P> {
+struct AppenderProcess<S, T> {
     id: NodeId,
     term: Term,
     conf: Arc<LeaderConfiguration>,
     target_id: NodeId,
-    peer: P,
+    client: RaftClient<T>,
     rx: mpsc::Receiver<NotifyAppendToAppender>,
     commit_manager_notifier: CommitManagerNotifier,
     state: Weak<RwLock<State<S>>>,
 }
 
-impl<S, P> AppenderProcess<S, P>
+impl<S, T> AppenderProcess<S, T>
 where
     S: StateMachine,
-    P: RaftPeer,
+    T: GrpcService<BoxBody>,
+    T::ResponseBody: Send + 'static,
+    <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
 {
     async fn run(mut self) {
         tracing::debug!(
@@ -265,7 +278,7 @@ where
                 .iter_at(next_index)
                 .map(|entry| {
                     let command = entry.command();
-                    pb::LogEntry {
+                    PbLogEntry {
                         term: entry.term(),
                         rpc: command.rpc().clone().into(),
                         body: command.body().as_ref().to_owned(),
@@ -275,7 +288,7 @@ where
             let n_entries = entries.len();
             drop(log);
 
-            let append_entries = self.peer.append_entries(pb::AppendEntriesRequest {
+            let append_entries = self.client.append_entries(AppendEntriesRequest {
                 leader_id: self.id,
                 term: self.term,
                 prev_log_index,
@@ -291,6 +304,7 @@ where
             .await;
 
             if let Ok(Ok(res)) = res {
+                let res = res.into_inner();
                 if res.success {
                     match_index = prev_log_index + (n_entries as LogIndex);
                     tracing::trace!(

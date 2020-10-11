@@ -2,8 +2,7 @@ use super::app::IncrState;
 use super::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
-use crate::raft::pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
-use crate::raft::peer::partitioned::{Request, Response};
+use crate::pb::raft::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
 
 #[tokio::test]
 async fn initial_election() {
@@ -37,61 +36,63 @@ async fn initial_election() {
         .confs(vec![conf1, conf2, conf3])
         .initial_states(vec![IncrState::default(); 3])
         .build();
-    let mut controller = group.spawn();
+    let mut handle = group.spawn();
 
     assert!(matches!(
-        controller.pass_request(1, 2).await,
-        Ok(Request::RequestVoteRequest(
-            RequestVoteRequest {
-                term: 2,
-                last_log_index: 0,
-                ..
-            }
-        ))
+        handle
+            .pass_request_vote_request(1, 2)
+            .await
+            .unwrap()
+            .into_inner(),
+        RequestVoteRequest {
+            term: 2,
+            last_log_index: 0,
+            ..
+        }
     ));
 
     assert!(matches!(
-        controller.discard_request(1, 3).await,
-        Ok(Request::RequestVoteRequest(
-            RequestVoteRequest {
-                term: 2,
-                last_log_index: 0,
-                ..
-            }
-        ))
-    ));
-
-    assert!(
-        matches!(
-            controller.pass_response(2, 1).await,
-            Ok(Response::RequestVoteResponse(RequestVoteResponse {
-                term: 2,
-                vote_granted: true,
-            }))
-        )
-    );
-
-    assert!(matches!(
-        controller.pass_request(1, 2).await,
-        Ok(Request::AppendEntriesRequest (
-            AppendEntriesRequest {
-                term: 2,
-                prev_log_index: 0,
-                prev_log_term: 0,
-                ..
-            },
-        ))
+        handle.block_request_vote_request(1, 3).await.unwrap().into_inner(),
+        RequestVoteRequest {
+            term: 2,
+            last_log_index: 0,
+            ..
+        }
     ));
 
     assert!(matches!(
-        controller.pass_request(1, 3).await,
-        Ok(Request::AppendEntriesRequest (
-            AppendEntriesRequest {
-                term: 2,
-                prev_log_index: 0,
-                prev_log_term: 0,
-                ..
-            },
-        ))
+        handle
+            .block_request_vote_response(2, 1)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_inner(),
+        RequestVoteResponse {
+            term: 2,
+            vote_granted: true,
+        }
+    ));
+
+    assert!(matches!(
+        handle.pass_append_entries_request(1, 2).await.unwrap().into_inner(),
+        AppendEntriesRequest {
+            term: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            ..
+        }
+    ));
+
+    assert!(matches!( handle
+            .pass_append_entries_request(1, 3)
+            .await
+            .unwrap()
+            .into_inner(),
+        AppendEntriesRequest {
+            term: 2,
+            prev_log_index: 0,
+            prev_log_term: 0,
+            ..
+        }
     ));
 }
