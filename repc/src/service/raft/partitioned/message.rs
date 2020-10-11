@@ -17,7 +17,7 @@ impl TryFrom<RaftRequest> for AppendEntriesRequest {
     fn try_from(res: RaftRequest) -> Result<Self, Self::Error> {
         match res {
             RaftRequest::AppendEntries(res) => Ok(res),
-            RaftRequest::RequestVote(res) => Err(ConversionError::ExpectedAppendEntriesRequest),
+            _ => Err(ConversionError::ExpectedAppendEntriesRequest),
         }
     }
 }
@@ -28,7 +28,7 @@ impl TryFrom<RaftRequest> for RequestVoteRequest {
     fn try_from(res: RaftRequest) -> Result<Self, Self::Error> {
         match res {
             RaftRequest::RequestVote(res) => Ok(res),
-            RaftRequest::AppendEntries(res) => Err(ConversionError::ExpectedRequestVoteRequest),
+            _ => Err(ConversionError::ExpectedRequestVoteRequest),
         }
     }
 }
@@ -45,7 +45,7 @@ impl TryFrom<RaftResponse> for AppendEntriesResponse {
     fn try_from(res: RaftResponse) -> Result<Self, Self::Error> {
         match res {
             RaftResponse::AppendEntries(res) => Ok(res),
-            RaftResponse::RequestVote(res) => Err(ConversionError::ExpectedAppendEntriesResponse),
+            _ => Err(ConversionError::ExpectedAppendEntriesResponse),
         }
     }
 }
@@ -56,7 +56,7 @@ impl TryFrom<RaftResponse> for RequestVoteResponse {
     fn try_from(res: RaftResponse) -> Result<Self, Self::Error> {
         match res {
             RaftResponse::RequestVote(res) => Ok(res),
-            RaftResponse::AppendEntries(res) => Err(ConversionError::ExpectedRequestVoteResponse),
+            _ => Err(ConversionError::ExpectedRequestVoteResponse),
         }
     }
 }
