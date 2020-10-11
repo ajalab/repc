@@ -1,5 +1,4 @@
 pub mod codec;
-mod error;
 
 use crate::raft::message::Message;
 use crate::state::{Command, RpcId};
