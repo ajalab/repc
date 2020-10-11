@@ -12,20 +12,8 @@ use crate::state::StateMachine;
 use crate::types::{NodeId, Term};
 use rand::Rng;
 use std::error;
-use std::fmt;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-#[derive(Debug)]
-pub struct ReferenceError;
-
-impl fmt::Display for ReferenceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "reference error")
-    }
-}
-
-impl error::Error for ReferenceError {}
 
 pub struct Follower<S> {
     id: NodeId,
