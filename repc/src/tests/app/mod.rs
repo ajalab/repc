@@ -66,6 +66,7 @@ impl Incr for IncrState {
     }
 }
 
+#[derive(Clone)]
 pub struct IncrService {
     repc: Repc,
 }

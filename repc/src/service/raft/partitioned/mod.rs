@@ -7,9 +7,9 @@ use crate::pb::raft::raft_server::Raft;
 use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use std::collections::VecDeque;
 use std::convert::TryFrom;
-use tokio::sync::{mpsc, oneshot};
+use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tonic::{Request, Response, Status};
 
 pub struct PartitionedRaftService {
@@ -69,16 +69,17 @@ impl Raft for PartitionedRaftService {
     }
 }
 
+#[derive(Clone)]
 pub struct Handle<S> {
     service: S,
-    pendings: VecDeque<(
-        ResponseResult<RaftResponse>,
-        oneshot::Sender<ResponseResult<RaftResponse>>,
-    )>,
-    rx: mpsc::Receiver<(
-        Request<RaftRequest>,
-        oneshot::Sender<ResponseResult<RaftResponse>>,
-    )>,
+    rx: Arc<
+        Mutex<
+            mpsc::Receiver<(
+                Request<RaftRequest>,
+                oneshot::Sender<ResponseResult<RaftResponse>>,
+            )>,
+        >,
+    >,
 }
 
 fn clone_request<T: Clone>(request: &Request<T>) -> Request<T> {
@@ -100,11 +101,10 @@ impl<S: Raft> Handle<S> {
     where
         T: TryFrom<RaftRequest, Error = ConversionError>,
     {
-        let (mut request, tx) = self
-            .rx
-            .recv()
-            .await
-            .ok_or_else(|| HandleError::ServiceDropped)?;
+        let (mut request, tx) = {
+            let mut rx = self.rx.lock().await;
+            rx.recv().await.ok_or_else(|| HandleError::ServiceDropped)?
+        };
         let metadata = std::mem::take(request.metadata_mut());
         let message = T::try_from(request.into_inner()).map_err(HandleError::ConversionError)?;
 
@@ -115,28 +115,40 @@ impl<S: Raft> Handle<S> {
 
     pub async fn pass_request_vote_request(
         &mut self,
-    ) -> Result<Request<RequestVoteRequest>, HandleError> {
+    ) -> Result<
+        (
+            Request<RequestVoteRequest>,
+            ResponseHandle<RequestVoteResponse>,
+        ),
+        HandleError,
+    > {
         let (request, tx) = self.get_request_of::<RequestVoteRequest>().await?;
         let response = self
             .service
             .request_vote(clone_request(&request))
             .await
             .map(|r| r.map(RaftResponse::RequestVote));
-        self.pendings.push_back((response, tx));
-        Ok(request)
+        let handle = ResponseHandle::<RequestVoteResponse>::new(response, tx);
+        Ok((request, handle))
     }
 
     pub async fn pass_append_entries_request(
         &mut self,
-    ) -> Result<Request<AppendEntriesRequest>, HandleError> {
+    ) -> Result<
+        (
+            Request<AppendEntriesRequest>,
+            ResponseHandle<AppendEntriesResponse>,
+        ),
+        HandleError,
+    > {
         let (request, tx) = self.get_request_of::<AppendEntriesRequest>().await?;
         let response = self
             .service
             .append_entries(clone_request(&request))
             .await
             .map(|r| r.map(RaftResponse::AppendEntries));
-        self.pendings.push_back((response, tx));
-        Ok(request)
+        let handle = ResponseHandle::<AppendEntriesResponse>::new(response, tx);
+        Ok((request, handle))
     }
 
     pub async fn block_request_vote_request(
@@ -156,89 +168,55 @@ impl<S: Raft> Handle<S> {
             .map_err(|_| HandleError::ServiceDropped)?;
         Ok(request)
     }
+}
 
-    async fn get_response<T>(
-        &mut self,
-    ) -> Result<
-        (
-            ResponseResult<T>,
-            oneshot::Sender<ResponseResult<RaftResponse>>,
-        ),
-        HandleError,
-    >
-    where
-        T: TryFrom<RaftResponse, Error = ConversionError>,
-    {
-        let (result, tx) = self
-            .pendings
-            .pop_front()
-            .ok_or_else(|| HandleError::NoPendingResponse)?;
-        let result = match result {
-            Ok(mut response) => {
-                let metadata = std::mem::take(response.metadata_mut());
-                let message =
-                    T::try_from(response.into_inner()).map_err(HandleError::ConversionError)?;
-                let mut response = Response::new(message);
-                *response.metadata_mut() = metadata;
-                Ok(response)
-            }
-            Err(status) => Err(status),
-        };
-        Ok((result, tx))
+pub struct ResponseHandle<Response> {
+    response: ResponseResult<RaftResponse>,
+    tx: oneshot::Sender<ResponseResult<RaftResponse>>,
+    _r: std::marker::PhantomData<Response>,
+}
+
+impl<Response> ResponseHandle<Response> {
+    fn new(
+        response: ResponseResult<RaftResponse>,
+        tx: oneshot::Sender<ResponseResult<RaftResponse>>,
+    ) -> Self {
+        ResponseHandle {
+            response,
+            tx,
+            _r: std::marker::PhantomData,
+        }
     }
+}
 
-    pub async fn pass_request_vote_response(
-        &mut self,
-    ) -> Result<ResponseResult<RequestVoteResponse>, HandleError> {
-        let (response, tx) = self.get_response::<RequestVoteResponse>().await?;
+impl<Response> ResponseHandle<Response>
+where
+    Response: TryFrom<RaftResponse, Error = ConversionError>,
+{
+    pub fn pass_response(self) -> Result<ResponseResult<Response>, HandleError> {
+        let response = self
+            .response
+            .as_ref()
+            .map(|r| clone_response(r))
+            .map_err(|s| s.clone());
 
-        tx.send(
-            response
-                .as_ref()
-                .map(|r| clone_response(r).map(RaftResponse::RequestVote))
-                .map_err(|s| s.clone()),
-        )
-        .map_err(|_| HandleError::ServiceDropped)?;
-
-        Ok(response)
-    }
-
-    pub async fn pass_append_entries_response(
-        &mut self,
-    ) -> Result<ResponseResult<AppendEntriesResponse>, HandleError> {
-        let (response, tx) = self.get_response::<AppendEntriesResponse>().await?;
-
-        tx.send(
-            response
-                .as_ref()
-                .map(|r| clone_response(r).map(RaftResponse::AppendEntries))
-                .map_err(|s| s.clone()),
-        )
-        .map_err(|_| HandleError::ServiceDropped)?;
-
-        Ok(response)
-    }
-
-    pub async fn block_request_vote_response(
-        &mut self,
-    ) -> Result<ResponseResult<RequestVoteResponse>, HandleError> {
-        let (response, tx) = self.get_response::<RequestVoteResponse>().await?;
-
-        tx.send(Err(Status::internal("response blocked")))
+        self.tx
+            .send(response)
             .map_err(|_| HandleError::ServiceDropped)?;
 
-        Ok(response)
+        Ok(self
+            .response
+            .map(|res| res.map(|r| Response::try_from(r).unwrap())))
     }
 
-    pub async fn block_append_entries_response(
-        &mut self,
-    ) -> Result<ResponseResult<AppendEntriesResponse>, HandleError> {
-        let (response, tx) = self.get_response::<AppendEntriesResponse>().await?;
-
-        tx.send(Err(Status::internal("response blocked")))
+    pub fn block_response(self) -> Result<ResponseResult<Response>, HandleError> {
+        self.tx
+            .send(Err(Status::internal("response blocked")))
             .map_err(|_| HandleError::ServiceDropped)?;
 
-        Ok(response)
+        Ok(self
+            .response
+            .map(|res| res.map(|r| Response::try_from(r).unwrap())))
     }
 }
 
@@ -250,8 +228,7 @@ where
     let partitioned = PartitionedRaftService { tx };
     let handle = Handle {
         service,
-        rx,
-        pendings: VecDeque::new(),
+        rx: Arc::new(Mutex::new(rx)),
     };
     (partitioned, handle)
 }

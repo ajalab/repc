@@ -2,7 +2,6 @@ use super::app::{IncrRequest, IncrResponse, IncrState};
 use super::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
-use crate::pb::raft::{AppendEntriesRequest, AppendEntriesResponse};
 
 #[tokio::test]
 async fn send_command() {
@@ -36,53 +35,34 @@ async fn send_command() {
         .confs(vec![conf1, conf2, conf3])
         .initial_states(vec![IncrState::default(); 3])
         .build();
-    let mut controller = group.spawn();
+    let mut handle = group.spawn();
 
     // Node 1 collects votes from 2 and becomes a leader
-    controller.pass_request_vote_request(1, 2).await.unwrap();
-    controller.block_request_vote_request(1, 3).await.unwrap();
-    controller.pass_append_entries_response(2, 1).await.unwrap();
+    let (_, h) = handle.pass_request_vote_request(1, 2).await.unwrap();
+    handle.block_request_vote_request(1, 3).await.unwrap();
+    h.pass_response().unwrap().unwrap();
 
     // Node 1 sends initial heartbeats to 2, 3
-    controller.pass_append_entries_request(1, 2).await.unwrap();
-    controller.pass_append_entries_request(1, 3).await.unwrap();
-    controller.pass_append_entries_response(2, 1).await.unwrap();
-    controller.pass_append_entries_response(3, 1).await.unwrap();
+    let (_, h) = handle.pass_append_entries_request(1, 2).await.unwrap();
+    h.pass_response().unwrap().unwrap();
+    let (_, h) = handle.pass_append_entries_request(1, 3).await.unwrap();
+    h.pass_response().unwrap().unwrap();
 
-    // Send a command to node 1
-    controller
-        .pass_next_request(1, 2, |req| {
-            assert!(matches!(
-                req.unwrap_append_entries(),
-                AppendEntriesRequest { .. }
-            ))
-        })
-        .await;
-    controller
-        .pass_next_response(2, 1, |res| {
-            assert!(matches!(
-                res.unwrap_append_entries(),
-                AppendEntriesResponse { .. }
-            ))
-        })
-        .await;
-    controller
-        .pass_next_request(1, 3, |req| {
-            assert!(matches!(
-                req.unwrap_append_entries(),
-                AppendEntriesRequest { .. }
-            ))
-        })
-        .await;
-    controller
-        .pass_next_response(3, 1, |res| {
-            assert!(matches!(
-                res.unwrap_append_entries(),
-                AppendEntriesResponse { .. }
-            ))
-        })
-        .await;
-    let res: Result<tonic::Response<IncrResponse>, tonic::Status> = controller
+    // Send a command to node 2
+    let mut handle2 = handle.raft_handle(1, 2).clone();
+    tokio::spawn(async move {
+        let (_, h) = handle2.pass_append_entries_request().await.unwrap();
+        h.pass_response().unwrap().unwrap();
+    });
+
+    // Send a command to node 3
+    let mut handle3 = handle.raft_handle(1, 3).clone();
+    tokio::spawn(async move {
+        let (_, h) = handle3.pass_append_entries_request().await.unwrap();
+        h.pass_response().unwrap().unwrap();
+    });
+
+    let res: Result<tonic::Response<IncrResponse>, tonic::Status> = handle
         .unary(1, "/incr.Incr/Incr", IncrRequest { i: 10 })
         .await;
 
