@@ -67,7 +67,7 @@ impl Appender {
     }
 
     pub fn try_notify(&mut self) -> Result<(), mpsc::error::TrySendError<Appended>> {
-        self.tx.try_send(Appended {})
+        self.tx.try_send(Appended)
     }
 }
 
