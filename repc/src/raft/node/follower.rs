@@ -1,9 +1,9 @@
+use super::deadline_clock::DeadlineClock;
 use crate::configuration::Configuration;
 use crate::pb::raft::LogEntry as PbLogEntry;
 use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use crate::raft::deadline_clock::DeadlineClock;
 use crate::raft::message::Message;
 use crate::state::log::LogEntry;
 use crate::state::Command;

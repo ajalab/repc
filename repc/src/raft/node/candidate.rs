@@ -1,7 +1,7 @@
+use super::deadline_clock::DeadlineClock;
 use crate::configuration::Configuration;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::{RequestVoteRequest, RequestVoteResponse};
-use crate::raft::deadline_clock::DeadlineClock;
 use crate::raft::message::Message;
 use crate::state::State;
 use crate::state::StateMachine;
