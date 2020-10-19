@@ -8,9 +8,9 @@ use crate::state::log::LogIndex;
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time;
-use tokio::time::Duration;
 use tonic::body::BoxBody;
 use tonic::client::GrpcService;
 use tonic::codegen::StdError;
@@ -18,8 +18,6 @@ use tonic::codegen::StdError;
 pub struct Appender {
     tx: mpsc::Sender<Appended>,
 }
-
-const APPENDER_CHANNEL_BUFFER_SIZE: usize = 10;
 
 impl Appender {
     pub fn spawn<S, T>(
@@ -37,7 +35,7 @@ impl Appender {
         T::Future: Send,
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
     {
-        let (tx, rx) = mpsc::channel::<Appended>(APPENDER_CHANNEL_BUFFER_SIZE);
+        let (tx, rx) = mpsc::channel::<Appended>(1);
         let mut appender = Appender { tx };
         let process = AppenderProcess {
             id,
@@ -97,6 +95,10 @@ where
             "start appender process",
         );
 
+        // Do not wait for append notification if
+        // - first time (send heartbeat immediately)
+        // - replication was failed before
+        let mut wait_notification = false;
         let mut next_index = {
             let state = self.state.upgrade();
             let state = state.unwrap();
@@ -106,38 +108,23 @@ where
         let mut match_index;
 
         loop {
-            tracing::trace!(
-                id = self.id,
-                term = self.term,
-                target_id = self.target_id,
-                "wait for heartbeat timeout or notification",
-            );
-            let wait = time::timeout(
-                Duration::from_millis(self.conf.heartbeat_timeout_millis),
-                self.rx.recv(),
-            )
-            .await;
-            match wait {
-                Ok(None) => break,
-                Ok(Some(_)) => {
-                    tracing::trace!(
-                        id = self.id,
-                        term = self.term,
-                        target_id = self.target_id,
-                        "notified to send new commands or initial heartbeat",
-                    );
+            if wait_notification {
+                tracing::trace!(
+                    id = self.id,
+                    term = self.term,
+                    target_id = self.target_id,
+                    "wait for heartbeat timeout or notification",
+                );
+                let wait = time::timeout(
+                    Duration::from_millis(self.conf.heartbeat_timeout_millis),
+                    self.rx.recv(),
+                )
+                .await;
+                if let Ok(None) = wait {
+                    break;
                 }
-                Err(_) => {
-                    tracing::trace!(
-                        id = self.id,
-                        term = self.term,
-                        target_id = self.target_id,
-                        "timeout. send heartbeat",
-                    );
-                }
-            }
-            if let Ok(None) = wait {
-                break;
+            } else {
+                let _ = self.rx.try_recv();
             }
 
             let state = match self.state.upgrade() {
@@ -187,29 +174,55 @@ where
             )
             .await;
 
-            if let Ok(Ok(res)) = res {
-                let res = res.into_inner();
-                if res.success {
-                    match_index = prev_log_index + (n_entries as LogIndex);
-                    tracing::trace!(
+            match res {
+                Err(_) => {
+                    // TODO: fall into follower if it can't reach the majority of nodes
+                    tracing::warn!(
                         id = self.id,
                         term = self.term,
                         target_id = self.target_id,
-                        "AppendRequest succeeded. updating match_index to {}",
-                        match_index,
+                        "AppendRequest aborted because it reached the deadline: {}ms",
+                        self.conf.wait_append_entries_response_timeout_millis,
                     );
-                    if let Err(e) = self
-                        .commit_manager_notifier
-                        .notify_replicated(self.target_id, match_index)
-                        .await
-                    {
-                        tracing::warn!(
+                }
+                Ok(Err(e)) => {
+                    // TODO: fall into follower if it can't reach the majority of nodes
+                    tracing::warn!(
+                        id = self.id,
+                        term = self.term,
+                        target_id = self.target_id,
+                        "AppendRequest failed due to a connection error: {}",
+                        e,
+                    );
+                }
+                Ok(Ok(res)) => {
+                    let res = res.into_inner();
+                    if res.success {
+                        match_index = prev_log_index + (n_entries as LogIndex);
+                        tracing::trace!(
                             id = self.id,
                             term = self.term,
                             target_id = self.target_id,
-                            "match_index update is not reported to CommitManager: {}",
-                            e
+                            "AppendRequest succeeded. updating match_index to {}",
+                            match_index,
                         );
+                        if let Err(e) = self
+                            .commit_manager_notifier
+                            .notify_replicated(self.target_id, match_index)
+                            .await
+                        {
+                            tracing::warn!(
+                                id = self.id,
+                                term = self.term,
+                                target_id = self.target_id,
+                                "match_index update is not reported to CommitManager: {}",
+                                e
+                            );
+                        }
+                        wait_notification = true;
+                    } else {
+                        next_index -= 1;
+                        wait_notification = false;
                     }
                 }
             }
