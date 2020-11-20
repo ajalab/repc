@@ -1,66 +1,62 @@
 pub mod codec;
 
+use crate::pb::repc::{
+    repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
+};
 use crate::raft::message::Message;
-use crate::state::{Command, RpcId};
+use crate::state::Command;
 use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot};
-use tonic::codegen::BoxFuture;
-use tonic::Status;
+use tonic::{Request, Response, Status};
 
-pub trait RepcService {
-    fn repc(&self) -> Repc;
-
-    fn from_tx(tx: mpsc::Sender<Message>) -> Self;
-}
-
-pub struct RepcUnaryService {
-    rpc: RpcId,
+#[derive(Clone)]
+pub struct RepcService {
     tx: mpsc::Sender<Message>,
 }
 
-impl RepcUnaryService {
-    fn new(rpc: RpcId, tx: mpsc::Sender<Message>) -> Self {
-        RepcUnaryService { rpc, tx }
+impl RepcService {
+    pub fn new(tx: mpsc::Sender<Message>) -> Self {
+        RepcService { tx }
     }
 }
 
-impl tonic::server::UnaryService<Bytes> for RepcUnaryService {
-    type Response = Bytes;
-    type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-
-    fn call(&mut self, req: tonic::Request<Bytes>) -> Self::Future {
+#[tonic::async_trait]
+impl Repc for RepcService {
+    async fn unary_command(
+        &self,
+        request: Request<CommandRequest>,
+    ) -> Result<Response<CommandResponse>, Status> {
+        let CommandRequest {
+            id,
+            sequence,
+            command_path,
+            command_body,
+        } = request.into_inner();
         let (callback_tx, callback_rx) = oneshot::channel();
         let command = Message::Command {
-            command: Command::new(self.rpc.clone(), req.into_inner()),
+            command: Command::new(command_path, Bytes::from(command_body)),
             tx: callback_tx,
         };
         let mut tx = self.tx.clone();
-        let fut = async move {
-            if tx.send(command).await.is_ok() {
-                match callback_rx.await {
-                    Ok(Ok(body)) => Ok(body),
-                    Ok(Err(e)) => Err(e.into_status()),
-                    Err(e) => Err(Status::internal(e.to_string())),
-                }
-            } else {
-                Err(Status::internal("terminated"))
+        if tx.send(command).await.is_ok() {
+            match callback_rx.await {
+                Ok(Ok(response)) => Ok(response.map(|res| CommandResponse {
+                    status: true,
+                    leader: "unimplemented".to_string(),
+                    response: res.to_vec(),
+                })),
+                Ok(Err(e)) => Err(e.into_status()),
+                Err(e) => Err(Status::internal(e.to_string())),
             }
-        };
-        Box::pin(fut)
-    }
-}
-
-#[derive(Clone)]
-pub struct Repc {
-    tx: mpsc::Sender<Message>,
-}
-
-impl Repc {
-    pub fn new(tx: mpsc::Sender<Message>) -> Self {
-        Repc { tx }
+        } else {
+            Err(Status::internal("terminated"))
+        }
     }
 
-    pub fn to_unary_service(self, rpc: RpcId) -> RepcUnaryService {
-        RepcUnaryService::new(rpc, self.tx)
+    async fn register(
+        &self,
+        request: Request<RegisterRequest>,
+    ) -> Result<Response<RegisterResponse>, Status> {
+        Err(Status::internal("unimplemented"))
     }
 }

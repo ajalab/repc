@@ -1,11 +1,9 @@
 mod command;
 pub mod error;
 pub mod log;
-mod rpc_id;
 mod state_machine;
 
 pub use command::Command;
-pub use rpc_id::RpcId;
 pub use state_machine::StateMachine;
 
 use bytes::Bytes;

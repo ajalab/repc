@@ -151,8 +151,8 @@ where
                     let command = entry.command();
                     PbLogEntry {
                         term: entry.term(),
-                        rpc: command.rpc().clone().into(),
-                        body: command.body().as_ref().to_owned(),
+                        command_path: command.path().clone().into(),
+                        command_body: command.body().as_ref().to_owned(),
                     }
                 })
                 .collect::<Vec<_>>();

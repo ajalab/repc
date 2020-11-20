@@ -14,6 +14,7 @@ http = "0.2"
 http-body = "0.3"
 tokio = { version = "0.2", features = ["macros", "time", "sync", "stream"] }
 tower-service = { version = "0.3" }
+tower = { version = "0.3" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 tracing = "0.1"
 clap = "2.33"

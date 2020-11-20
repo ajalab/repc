@@ -4,19 +4,18 @@ use crate::pb::raft::raft_server::{Raft, RaftServer};
 use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
+use crate::pb::repc::repc_server::Repc;
+use crate::pb::repc::CommandRequest;
 use crate::raft::node::Node;
 use crate::service::raft::partitioned::{error::HandleError, partition, Handle, ResponseHandle};
 use crate::service::raft::RaftService;
 use crate::service::repc::RepcService;
 use crate::state::StateMachine;
 use crate::types::NodeId;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tonic::body::BoxBody;
-use tonic::server::UnaryService;
 use tonic::Status;
-use tower_service::Service;
 
 #[derive(Default)]
 pub struct PartitionedLocalRepcGroupBuilder<S> {
@@ -54,7 +53,7 @@ impl<S> PartitionedLocalRepcGroup<S>
 where
     S: StateMachine + Send + Sync + 'static,
 {
-    pub fn spawn(self) -> PartitionedLocalRaftGroupHandle<S::Service, RaftService> {
+    pub fn spawn(self) -> PartitionedLocalRaftGroupHandle<RaftService> {
         const BUFFER: usize = 10;
 
         let nodes: HashMap<NodeId, _> = self
@@ -93,9 +92,9 @@ where
             raft_client_handles.insert(src_id, handles);
         }
 
-        let repc_services: HashMap<NodeId, S::Service> = nodes
+        let repc_services: HashMap<NodeId, RepcService> = nodes
             .iter()
-            .map(|(&i, node)| (i, S::Service::from_tx(node.get_tx())))
+            .map(|(&i, node)| (i, RepcService::new(node.get_tx())))
             .collect();
 
         for (id, node) in nodes.into_iter() {
@@ -111,14 +110,13 @@ where
 }
 
 #[derive(Clone)]
-pub struct PartitionedLocalRaftGroupHandle<S, R> {
+pub struct PartitionedLocalRaftGroupHandle<R> {
     handles: HashMap<NodeId, HashMap<NodeId, Handle<R>>>,
-    repc_services: HashMap<NodeId, S>,
+    repc_services: HashMap<NodeId, RepcService>,
 }
 
-impl<S, R> PartitionedLocalRaftGroupHandle<S, R>
+impl<R> PartitionedLocalRaftGroupHandle<R>
 where
-    S: RepcService + Service<http::Request<BoxBody>>,
     R: Raft,
 {
     pub fn raft_handle(&mut self, i: NodeId, j: NodeId) -> &Handle<R> {
@@ -179,27 +177,31 @@ where
             .await
     }
 
-    pub async fn unary<C, T1, T2>(
+    pub async fn unary<P, T1, T2>(
         &mut self,
         i: NodeId,
-        rpc: C,
-        command: T1,
+        path: P,
+        req: T1,
     ) -> Result<tonic::Response<T2>, Status>
     where
-        C: AsRef<str>,
+        P: AsRef<str>,
         T1: prost::Message,
         T2: prost::Message + Default,
     {
         let repc_service = &mut self.repc_services.get(&i).unwrap();
-        let mut req_bytes_inner = BytesMut::new();
-        command.encode(&mut req_bytes_inner).unwrap();
-        let req_bytes = tonic::Request::new(req_bytes_inner.into());
+        let mut body = BytesMut::new();
+        req.encode(&mut body).unwrap();
+        let request = tonic::Request::new(CommandRequest {
+            id: 0,
+            sequence: 0,
+            command_path: path.as_ref().to_string(),
+            command_body: body.to_vec(),
+        });
 
-        let mut unary_service = repc_service.repc().to_unary_service(rpc.as_ref().into());
-        let mut res_bytes = unary_service.call(req_bytes).await?;
-        let metadata = std::mem::take(res_bytes.metadata_mut());
+        let mut response = repc_service.unary_command(request).await?;
+        let metadata = std::mem::take(response.metadata_mut());
 
-        let res_message_inner = T2::decode(res_bytes.into_inner())
+        let res_message_inner = T2::decode(Bytes::from(response.into_inner().response))
             .map_err(|e| Status::internal(format!("failed to decode: {}", e)))?;
 
         let mut res_message = tonic::Response::new(res_message_inner);

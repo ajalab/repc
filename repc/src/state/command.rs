@@ -1,18 +1,17 @@
-use super::RpcId;
 use bytes::Bytes;
 #[derive(Clone)]
 pub struct Command {
-    rpc: RpcId,
+    path: String,
     body: Bytes,
 }
 
 impl Command {
-    pub fn new(rpc: RpcId, body: Bytes) -> Self {
-        Command { rpc, body }
+    pub fn new(path: String, body: Bytes) -> Self {
+        Command { path, body }
     }
 
-    pub fn rpc(&self) -> &RpcId {
-        &self.rpc
+    pub fn path(&self) -> &String {
+        &self.path
     }
 
     pub fn body(&self) -> &Bytes {

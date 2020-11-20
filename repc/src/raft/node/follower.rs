@@ -199,7 +199,7 @@ where
                 .into_iter()
                 .skip(i as usize)
                 .map(|e: PbLogEntry| {
-                    LogEntry::new(e.term, Command::new(e.rpc.into(), e.body.into()))
+                    LogEntry::new(e.term, Command::new(e.command_path, e.command_body.into()))
                 }),
         );
         tracing::trace!(
