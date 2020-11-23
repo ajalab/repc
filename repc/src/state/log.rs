@@ -1,25 +1,6 @@
-use crate::state::Command;
-use crate::types::Term;
+use crate::pb::raft::LogEntry;
 
 pub type LogIndex = u64;
-pub struct LogEntry {
-    term: Term,
-    command: Command,
-}
-
-impl LogEntry {
-    pub fn new(term: Term, command: Command) -> Self {
-        LogEntry { term, command }
-    }
-
-    pub fn term(&self) -> Term {
-        self.term
-    }
-
-    pub fn command(&self) -> &Command {
-        &self.command
-    }
-}
 
 #[derive(Default)]
 pub struct Log {

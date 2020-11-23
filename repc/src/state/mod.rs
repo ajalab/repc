@@ -1,14 +1,13 @@
-mod command;
 pub mod error;
 pub mod log;
 mod state_machine;
 
-pub use command::Command;
 pub use state_machine::StateMachine;
 
+use crate::pb::raft::{log_entry::Command, LogEntry};
 use bytes::Bytes;
 use error::StateMachineError;
-use log::{Log, LogEntry, LogIndex};
+use log::{Log, LogIndex};
 
 pub struct State<S> {
     log: Log,
@@ -65,9 +64,16 @@ impl<S: StateMachine> State<S> {
         let i = self.last_applied + 1;
         if i <= self.last_committed {
             let entry = self.log.get(i)?;
-            let command = entry.command().clone();
+            let command = entry.command.as_ref()?;
             self.last_applied += 1;
-            Some(self.state_machine.apply(command))
+            if let Command::Action(action) = command {
+                Some(
+                    self.state_machine
+                        .apply(action.path.as_ref(), action.body.as_ref()),
+                )
+            } else {
+                Some(Ok(tonic::Response::new(Bytes::new())))
+            }
         } else {
             None
         }

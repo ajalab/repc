@@ -7,8 +7,8 @@ use self::commit_manager::CommitManager;
 use super::error::CommandError;
 use crate::configuration::Configuration;
 use crate::pb::raft::raft_client::RaftClient;
-use crate::state::log::LogEntry;
-use crate::state::{Command, State, StateMachine};
+use crate::pb::raft::{log_entry::Command, LogEntry};
+use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use futures::FutureExt;
@@ -94,9 +94,13 @@ where
         command: Command,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
+        let entry = LogEntry {
+            term: self.term,
+            command: Some(command),
+        };
         let index = {
             let mut state = self.state.as_ref().unwrap().write().await;
-            state.append_log_entries(iter::once(LogEntry::new(self.term, command)));
+            state.append_log_entries(iter::once(entry));
             state.last_index()
         };
 

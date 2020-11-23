@@ -4,9 +4,9 @@ use super::follower::Follower;
 use super::leader::Leader;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+    log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
 };
-use crate::state::Command;
 use crate::state::State;
 use crate::state::StateMachine;
 use crate::types::NodeId;

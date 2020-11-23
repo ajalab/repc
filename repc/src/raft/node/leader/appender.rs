@@ -143,18 +143,11 @@ where
             let log = state.log();
 
             let prev_log_index = next_index - 1;
-            let prev_log_term = log.get(prev_log_index).map(|e| e.term()).unwrap_or(0);
+            let prev_log_term = log.get(prev_log_index).map(|e| e.term).unwrap_or(0);
             let last_committed_index = log.last_committed();
             let entries = log
                 .iter_at(next_index)
-                .map(|entry| {
-                    let command = entry.command();
-                    PbLogEntry {
-                        term: entry.term(),
-                        command_path: command.path().clone().into(),
-                        command_body: command.body().as_ref().to_owned(),
-                    }
-                })
+                .map(Clone::clone)
                 .collect::<Vec<_>>();
             let n_entries = entries.len();
             drop(log);

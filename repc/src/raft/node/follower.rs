@@ -1,12 +1,9 @@
 use super::deadline_clock::DeadlineClock;
 use crate::configuration::Configuration;
-use crate::pb::raft::LogEntry as PbLogEntry;
 use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::raft::message::Message;
-use crate::state::log::LogEntry;
-use crate::state::Command;
 use crate::state::State;
 use crate::state::StateMachine;
 use crate::types::{NodeId, Term};
@@ -157,7 +154,7 @@ where
         let state = self.state.as_mut().unwrap();
         if req.prev_log_index > 0 {
             let prev_log_entry = state.log().get(req.prev_log_index);
-            let prev_log_term = prev_log_entry.map(|e| e.term());
+            let prev_log_term = prev_log_entry.map(|e| e.term);
 
             if prev_log_term != Some(req.prev_log_term) {
                 tracing::debug!(
@@ -180,7 +177,7 @@ where
         let mut i = 0;
         for e in req.entries.iter() {
             let index = req.prev_log_index + 1 + i;
-            let term = state.log().get(index).map(|e| e.term());
+            let term = state.log().get(index).map(|e| e.term);
             match term {
                 Some(term) => {
                     if term != e.term {
@@ -194,14 +191,7 @@ where
             }
             i += 1;
         }
-        state.append_log_entries(
-            req.entries
-                .into_iter()
-                .skip(i as usize)
-                .map(|e: PbLogEntry| {
-                    LogEntry::new(e.term, Command::new(e.command_path, e.command_body.into()))
-                }),
-        );
+        state.append_log_entries(req.entries.into_iter().skip(i as usize));
         tracing::trace!(
             id = self.id,
             term = self.term,

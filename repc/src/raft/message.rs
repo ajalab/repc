@@ -1,8 +1,8 @@
 use super::node::error::CommandError;
 use crate::pb::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+    log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
 };
-use crate::state::Command;
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::error;

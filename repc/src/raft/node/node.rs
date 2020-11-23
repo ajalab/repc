@@ -6,11 +6,12 @@ use super::role::Role;
 use crate::configuration::Configuration;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+    log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
 };
 use crate::raft::message::Message;
+use crate::state::State;
 use crate::state::StateMachine;
-use crate::state::{Command, State};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use std::collections::HashMap;

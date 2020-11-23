@@ -192,10 +192,9 @@ where
         let mut body = BytesMut::new();
         req.encode(&mut body).unwrap();
         let request = tonic::Request::new(CommandRequest {
-            id: 0,
+            path: path.as_ref().to_string(),
+            body: body.to_vec(),
             sequence: 0,
-            command_path: path.as_ref().to_string(),
-            command_body: body.to_vec(),
         });
 
         let mut response = repc_service.unary_command(request).await?;
