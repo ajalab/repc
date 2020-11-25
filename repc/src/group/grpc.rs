@@ -1,8 +1,10 @@
 use crate::configuration::Configuration;
-use crate::pb::raft::raft_client::RaftClient;
-use crate::pb::raft::raft_server::RaftServer;
+use crate::pb::{
+    raft::{raft_client::RaftClient, raft_server::RaftServer},
+    repc::repc_server::RepcServer,
+};
 use crate::raft::node::Node;
-use crate::service::raft::RaftService;
+use crate::service::{raft::RaftService, repc::RepcService};
 use crate::state::StateMachine;
 use crate::types::NodeId;
 use http::Uri;
@@ -43,11 +45,11 @@ where
         tokio::spawn(raft_server.serve(raft_addr));
 
         // start rpc server
-        // let repc_addr = SocketAddr::new(node_conf.ip, node_conf.repc_port);
-        // let repc_service = RepcService::new(node.get_tx());
-        // let repc_server = Server::builder().add_service(repc_service);
-        // info!("start serving Repc service on {}", repc_addr);
-        // tokio::spawn(repc_server.serve(repc_addr));
+        let repc_addr = SocketAddr::new(node_conf.ip, node_conf.repc_port);
+        let repc_service = RepcService::new(node.get_tx());
+        let repc_server = Server::builder().add_service(RepcServer::new(repc_service));
+        tracing::info!("start serving Repc service on {}", repc_addr);
+        tokio::spawn(repc_server.serve(repc_addr));
 
         // set up connections to other nodes
         let mut clients = HashMap::new();
