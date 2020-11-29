@@ -63,7 +63,8 @@ async fn send_command() {
     });
 
     let res: Result<tonic::Response<IncrResponse>, tonic::Status> = handle
-        .unary(1, "/incr.Incr/Incr", IncrRequest { i: 10 })
+        .repc_client_mut(1)
+        .unary("/incr.Incr/Incr", IncrRequest { i: 10 })
         .await;
 
     assert_eq!(IncrResponse { n: 10 }, res.unwrap().into_inner());

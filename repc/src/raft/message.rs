@@ -3,6 +3,7 @@ use crate::pb::raft::{
     log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
 };
+use crate::state::session::{RepcClientId, Sequence};
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::error;
@@ -31,6 +32,8 @@ pub enum Message {
 
     Command {
         command: Command,
+        client_id: RepcClientId,
+        sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     },
 

@@ -7,8 +7,10 @@ use crate::pb::raft::{
     log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
 };
-use crate::state::State;
-use crate::state::StateMachine;
+use crate::state::{
+    session::{RepcClientId, Sequence},
+    State, StateMachine,
+};
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -88,11 +90,15 @@ where
     pub async fn handle_command(
         &mut self,
         command: Command,
+        client_id: RepcClientId,
+        sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         match self {
             Role::Leader { ref mut leader } => {
-                leader.handle_command(command, tx).await;
+                leader
+                    .handle_command(command, client_id, sequence, tx)
+                    .await;
             }
             _ => {
                 let _ = tx.send(Err(CommandError::NotLeader));

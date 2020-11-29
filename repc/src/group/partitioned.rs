@@ -1,18 +1,17 @@
 use crate::configuration::Configuration;
-use crate::pb::raft::raft_client::RaftClient;
-use crate::pb::raft::raft_server::{Raft, RaftServer};
 use crate::pb::raft::{
+    raft_client::RaftClient,
+    raft_server::{Raft, RaftServer},
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
-use crate::pb::repc::repc_server::Repc;
-use crate::pb::repc::CommandRequest;
 use crate::raft::node::Node;
 use crate::service::raft::partitioned::{error::HandleError, partition, Handle, ResponseHandle};
 use crate::service::raft::RaftService;
 use crate::service::repc::RepcService;
 use crate::state::StateMachine;
 use crate::types::NodeId;
-use bytes::{Bytes, BytesMut};
+use repc_client::RepcClient;
+use repc_proto::repc_server::RepcServer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tonic::Status;
@@ -92,9 +91,14 @@ where
             raft_client_handles.insert(src_id, handles);
         }
 
-        let repc_services: HashMap<NodeId, RepcService> = nodes
+        let repc_clients: HashMap<NodeId, _> = nodes
             .iter()
-            .map(|(&i, node)| (i, RepcService::new(node.get_tx())))
+            .map(|(&i, node)| {
+                (
+                    i,
+                    RepcClient::new(RepcServer::new(RepcService::new(node.get_tx()))),
+                )
+            })
             .collect();
 
         for (id, node) in nodes.into_iter() {
@@ -104,15 +108,14 @@ where
 
         PartitionedLocalRaftGroupHandle {
             handles: raft_client_handles,
-            repc_services,
+            repc_clients,
         }
     }
 }
 
-#[derive(Clone)]
 pub struct PartitionedLocalRaftGroupHandle<R> {
     handles: HashMap<NodeId, HashMap<NodeId, Handle<R>>>,
-    repc_services: HashMap<NodeId, RepcService>,
+    repc_clients: HashMap<NodeId, RepcClient<RepcServer<RepcService>>>,
 }
 
 impl<R> PartitionedLocalRaftGroupHandle<R>
@@ -125,6 +128,10 @@ where
 
     pub fn raft_handle_mut(&mut self, i: NodeId, j: NodeId) -> &mut Handle<R> {
         self.handles.get_mut(&i).unwrap().get_mut(&j).unwrap()
+    }
+
+    pub fn repc_client_mut(&mut self, i: NodeId) -> &mut RepcClient<RepcServer<RepcService>> {
+        self.repc_clients.get_mut(&i).unwrap()
     }
 
     pub async fn pass_request_vote_request(
@@ -188,23 +195,7 @@ where
         T1: prost::Message,
         T2: prost::Message + Default,
     {
-        let repc_service = &mut self.repc_services.get(&i).unwrap();
-        let mut body = BytesMut::new();
-        req.encode(&mut body).unwrap();
-        let request = tonic::Request::new(CommandRequest {
-            path: path.as_ref().to_string(),
-            body: body.to_vec(),
-            sequence: 0,
-        });
-
-        let mut response = repc_service.unary_command(request).await?;
-        let metadata = std::mem::take(response.metadata_mut());
-
-        let res_message_inner = T2::decode(Bytes::from(response.into_inner().response))
-            .map_err(|e| Status::internal(format!("failed to decode: {}", e)))?;
-
-        let mut res_message = tonic::Response::new(res_message_inner);
-        *res_message.metadata_mut() = metadata;
-        Ok(res_message)
+        let repc_client = self.repc_clients.get_mut(&i).unwrap();
+        repc_client.unary(path, req).await
     }
 }

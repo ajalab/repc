@@ -3,7 +3,6 @@ use super::message::Appended;
 use crate::configuration::LeaderConfiguration;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::AppendEntriesRequest;
-use crate::pb::raft::LogEntry as PbLogEntry;
 use crate::state::log::LogIndex;
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};

@@ -1,13 +1,11 @@
 use crate::configuration::Configuration;
-use crate::pb::{
-    raft::{raft_client::RaftClient, raft_server::RaftServer},
-    repc::repc_server::RepcServer,
-};
+use crate::pb::raft::{raft_client::RaftClient, raft_server::RaftServer};
 use crate::raft::node::Node;
 use crate::service::{raft::RaftService, repc::RepcService};
 use crate::state::StateMachine;
 use crate::types::NodeId;
 use http::Uri;
+use repc_proto::repc_server::RepcServer;
 use std::collections::HashMap;
 use std::error;
 use std::net::SocketAddr;

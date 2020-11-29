@@ -10,8 +10,7 @@ use crate::pb::raft::{
     RequestVoteResponse,
 };
 use crate::raft::message::Message;
-use crate::state::State;
-use crate::state::StateMachine;
+use crate::state::{session::{RepcClientId, Sequence}, State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -129,7 +128,12 @@ where
 
                 Message::ElectionTimeout => self.handle_election_timeout().await,
 
-                Message::Command { command, tx } => self.handle_command(command, tx).await,
+                Message::Command {
+                    command,
+                    client_id,
+                    sequence,
+                    tx,
+                } => self.handle_command(command, client_id, sequence, tx).await,
                 _ => {}
             }
         }
@@ -217,10 +221,14 @@ where
     async fn handle_command(
         &mut self,
         command: Command,
+        client_id: RepcClientId,
+        sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         tracing::trace!(id = self.id, term = self.term, "received a command");
-        self.role.handle_command(command, tx).await;
+        self.role
+            .handle_command(command, client_id, sequence, tx)
+            .await;
     }
 
     fn trans_state_follower(&mut self) {

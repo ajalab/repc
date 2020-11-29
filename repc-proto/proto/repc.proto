@@ -14,7 +14,7 @@ message CommandRequest {
   uint64 sequence = 3;
 }
 
-message CommandResponse { bytes response = 1; }
+message CommandResponse { bytes body = 1; }
 
 message RegisterRequest {}
 

@@ -1,10 +1,15 @@
 pub mod codec;
+mod error;
 
-use crate::pb::raft::{log_entry::Command, Action};
-use crate::pb::repc::{
-    repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
-};
+use self::error::RepcServiceError;
+use crate::pb::raft::{log_entry::Command, Action, Register};
 use crate::raft::message::Message;
+use crate::state::session::{RepcClientId, Sequence};
+use bytes::{Buf, Bytes};
+use repc_proto::{
+    repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
+    METADATA_REPC_CLIENT_ID_KEY,
+};
 use tokio::sync::{mpsc, oneshot};
 use tonic::{Request, Response, Status, Streaming};
 
@@ -19,41 +24,50 @@ impl RepcService {
     }
 }
 
+fn get_client_id<T>(request: &Request<T>) -> Result<RepcClientId, RepcServiceError> {
+    request
+        .metadata()
+        .get(METADATA_REPC_CLIENT_ID_KEY)
+        .ok_or_else(|| RepcServiceError::ClientIdNotExist)
+        .and_then(|id| id.to_str().map_err(|_| RepcServiceError::ClientIdInvalid))
+        .and_then(|id| {
+            id.parse::<u64>()
+                .map_err(|_| RepcServiceError::ClientIdInvalid)
+        })
+        .map(|id| RepcClientId::from(id))
+}
+
 #[tonic::async_trait]
 impl Repc for RepcService {
     async fn unary_command(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
+        let client_id = get_client_id(&request).map_err(|e| e.into_status())?;
         let CommandRequest {
             path,
             body,
             sequence,
         } = request.into_inner();
-        let (callback_tx, callback_rx) = oneshot::channel();
-        let command = Message::Command {
-            command: Command::Action(Action { path, body }),
-            tx: callback_tx,
-        };
-        let mut tx = self.tx.clone();
-        if tx.send(command).await.is_ok() {
-            match callback_rx.await {
-                Ok(Ok(response)) => Ok(response.map(|res| CommandResponse {
-                    response: res.to_vec(),
-                })),
-                Ok(Err(e)) => Err(e.into_status()),
-                Err(e) => Err(Status::internal(e.to_string())),
-            }
-        } else {
-            Err(Status::internal("terminated"))
-        }
+        let command = Command::Action(Action { path, body });
+        let sequence = Sequence::from(sequence);
+        self.handle_command(command, client_id, sequence)
+            .await
+            .map(|response| {
+                response.map(|body| CommandResponse {
+                    body: body.to_vec(),
+                })
+            })
     }
 
     async fn register(
         &self,
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
-        Err(Status::internal("unimplemented"))
+        let command = Command::Register(Register {});
+        self.handle_command(command, RepcClientId::default(), Sequence::default())
+            .await
+            .map(|response| response.map(|mut body| RegisterResponse { id: body.get_u64() }))
     }
 
     async fn client_stream_command(
@@ -74,5 +88,29 @@ impl Repc for RepcService {
 }
 
 impl RepcService {
-    async fn handle_command(&self, sequence: u64, command: Command) {}
+    async fn handle_command(
+        &self,
+        command: Command,
+        client_id: RepcClientId,
+        sequence: Sequence,
+    ) -> Result<tonic::Response<Bytes>, Status> {
+        let (callback_tx, callback_rx) = oneshot::channel();
+        let command = Message::Command {
+            command,
+            client_id,
+            sequence,
+            tx: callback_tx,
+        };
+
+        let mut tx = self.tx.clone();
+        if tx.send(command).await.is_ok() {
+            match callback_rx.await {
+                Ok(Ok(response)) => Ok(response),
+                Ok(Err(e)) => Err(e.into_status()),
+                Err(e) => Err(Status::internal(e.to_string())),
+            }
+        } else {
+            Err(Status::internal("terminated"))
+        }
+    }
 }

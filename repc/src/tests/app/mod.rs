@@ -1,5 +1,5 @@
 use crate::state::error::StateMachineError;
-use crate::state::{Command, StateMachine};
+use crate::state::StateMachine;
 use bytes::{Bytes, BytesMut};
 use prost::Message as ProstMessage;
 
@@ -23,11 +23,14 @@ impl<S> StateMachine for S
 where
     S: Incr,
 {
-    fn apply(&mut self, command: Command) -> Result<tonic::Response<Bytes>, StateMachineError> {
-        let path = command.path().as_str();
+    fn apply(
+        &mut self,
+        path: &str,
+        body: &[u8],
+    ) -> Result<tonic::Response<Bytes>, StateMachineError> {
         match path {
             "/incr.Incr/Incr" => {
-                let req = IncrRequest::decode(command.body().clone())
+                let req = IncrRequest::decode(body)
                     .map_err(|e| StateMachineError::DecodeRequestFailed(e))?;
                 let mut res = self.incr(req).map_err(StateMachineError::ApplyFailed)?;
                 let mut res_bytes = tonic::Response::new(BytesMut::new());

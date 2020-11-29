@@ -8,7 +8,10 @@ use super::error::CommandError;
 use crate::configuration::Configuration;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::{log_entry::Command, LogEntry};
-use crate::state::{State, StateMachine};
+use crate::state::{
+    session::{RepcClientId, Sequence},
+    State, StateMachine,
+};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use futures::FutureExt;
@@ -92,6 +95,8 @@ where
     pub async fn handle_command(
         &mut self,
         command: Command,
+        client_id: RepcClientId,
+        sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         let entry = LogEntry {
