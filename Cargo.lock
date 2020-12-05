@@ -140,6 +140,7 @@ name = "examples"
 version = "0.1.0"
 dependencies = [
  "repc",
+ "repc-build",
  "tonic-build",
 ]
 
@@ -742,12 +743,46 @@ dependencies = [
  "http-body",
  "prost",
  "rand",
+ "repc-client",
+ "repc-proto",
  "tokio",
  "tonic",
  "tonic-build",
+ "tower",
  "tower-service",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "repc-build"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "prost-build",
+ "quote",
+ "syn",
+ "tonic-build",
+]
+
+[[package]]
+name = "repc-client"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "http-body",
+ "prost",
+ "repc-proto",
+ "tonic",
+]
+
+[[package]]
+name = "repc-proto"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]

@@ -1,10 +1,10 @@
+use crate::session::error::SessionError;
 use crate::state::error::StateMachineError;
-use crate::state::session::error::SessionError;
 use std::error;
 use std::fmt;
 use tonic::Status;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CommandError {
     NotLeader,
     StateMachineError(StateMachineError),

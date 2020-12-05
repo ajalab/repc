@@ -3,7 +3,7 @@ use crate::pb::raft::{
     log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
 };
-use crate::state::session::{RepcClientId, Sequence};
+use crate::session::{RepcClientId, Sequence};
 use crate::types::NodeId;
 use bytes::Bytes;
 use std::error;

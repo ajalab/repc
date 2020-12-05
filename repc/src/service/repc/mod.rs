@@ -4,7 +4,7 @@ mod error;
 use self::error::RepcServiceError;
 use crate::pb::raft::{log_entry::Command, Action, Register};
 use crate::raft::message::Message;
-use crate::state::session::{RepcClientId, Sequence};
+use crate::session::{RepcClientId, Sequence};
 use bytes::{Buf, Bytes};
 use repc_proto::{
     repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
@@ -107,7 +107,10 @@ impl RepcService {
             match callback_rx.await {
                 Ok(Ok(response)) => Ok(response),
                 Ok(Err(e)) => Err(e.into_status()),
-                Err(e) => Err(Status::internal(e.to_string())),
+                Err(e) => Err(Status::internal(format!(
+                    "channel to the node process has been closed: {}",
+                    e
+                ))),
             }
         } else {
             Err(Status::internal("terminated"))

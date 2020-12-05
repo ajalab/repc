@@ -1,13 +1,11 @@
 pub mod error;
 pub mod log;
-pub mod session;
 mod state_machine;
 
 pub use state_machine::StateMachine;
 
-use self::session::{RepcClientId, Sessions};
 use crate::pb::raft::{log_entry::Command, LogEntry};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use error::StateMachineError;
 use log::{Log, LogIndex};
 
@@ -16,7 +14,6 @@ pub struct State<S> {
     state_machine: S,
     last_applied: LogIndex,
     last_committed: LogIndex,
-    sessions: Sessions,
 }
 
 impl<S> State<S> {
@@ -26,7 +23,6 @@ impl<S> State<S> {
             state_machine,
             last_applied: LogIndex::default(),
             last_committed: LogIndex::default(),
-            sessions: Sessions::default(),
         }
     }
 }
@@ -72,18 +68,9 @@ impl<S: StateMachine> State<S> {
                 Command::Action(action) => self
                     .state_machine
                     .apply(action.path.as_ref(), action.body.as_ref()),
-                Command::Register(_) => {
-                    let client_id = self.last_applied;
-                    self.sessions.register(RepcClientId::from(client_id));
-                    let mut client_id_bytes = BytesMut::with_capacity(std::mem::size_of::<u64>());
-                    client_id_bytes.put_u64(client_id);
-
-                    tracing::info!(client_id, "registered a new client");
-
-                    Ok(tonic::Response::new(Bytes::from(
-                        self.last_applied.to_le_bytes().to_vec(),
-                    )))
-                }
+                Command::Register(_) => Ok(tonic::Response::new(Bytes::from(
+                    (self.last_applied + 1).to_be_bytes().to_vec(),
+                ))),
             };
             self.last_applied += 1;
             Some(result)

@@ -7,6 +7,7 @@ use crate::pb::raft::raft_server::Raft;
 use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
+use crate::util;
 use std::convert::TryFrom;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -82,18 +83,6 @@ pub struct Handle<S> {
     >,
 }
 
-fn clone_request<T: Clone>(request: &Request<T>) -> Request<T> {
-    let mut clone = Request::new(request.get_ref().clone());
-    *clone.metadata_mut() = request.metadata().clone();
-    clone
-}
-
-fn clone_response<T: Clone>(response: &Response<T>) -> Response<T> {
-    let mut clone = Response::new(response.get_ref().clone());
-    *clone.metadata_mut() = response.metadata().clone();
-    clone
-}
-
 impl<S: Raft> Handle<S> {
     async fn get_request_of<T>(
         &mut self,
@@ -125,7 +114,7 @@ impl<S: Raft> Handle<S> {
         let (request, tx) = self.get_request_of::<RequestVoteRequest>().await?;
         let response = self
             .service
-            .request_vote(clone_request(&request))
+            .request_vote(util::clone_request(&request))
             .await
             .map(|r| r.map(RaftResponse::RequestVote));
         let handle = ResponseHandle::<RequestVoteResponse>::new(response, tx);
@@ -144,7 +133,7 @@ impl<S: Raft> Handle<S> {
         let (request, tx) = self.get_request_of::<AppendEntriesRequest>().await?;
         let response = self
             .service
-            .append_entries(clone_request(&request))
+            .append_entries(util::clone_request(&request))
             .await
             .map(|r| r.map(RaftResponse::AppendEntries));
         let handle = ResponseHandle::<AppendEntriesResponse>::new(response, tx);
@@ -197,7 +186,7 @@ where
         let response = self
             .response
             .as_ref()
-            .map(|r| clone_response(r))
+            .map(|r| util::clone_response(r))
             .map_err(|s| s.clone());
 
         self.tx

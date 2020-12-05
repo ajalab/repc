@@ -10,7 +10,9 @@ use crate::pb::raft::{
     RequestVoteResponse,
 };
 use crate::raft::message::Message;
-use crate::state::{session::{RepcClientId, Sequence}, State, StateMachine};
+use crate::session::Sessions;
+use crate::session::{RepcClientId, Sequence};
+use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use std::collections::HashMap;
@@ -68,6 +70,7 @@ where
 {
     pub async fn run(self) {
         let term = 1;
+        let sessions = Arc::new(Sessions::default());
         let role = Role::Follower {
             follower: follower::Follower::spawn(
                 self.id,
@@ -80,6 +83,7 @@ where
         let mut process = NodeProcess {
             id: self.id,
             conf: self.conf,
+            sessions,
             term,
             role,
             tx: self.tx,
@@ -93,6 +97,7 @@ where
 struct NodeProcess<S, T> {
     id: NodeId,
     conf: Arc<Configuration>,
+    sessions: Arc<Sessions>,
 
     // TODO: make these persistent
     term: Term,
@@ -270,6 +275,7 @@ where
                 self.conf.clone(),
                 self.term,
                 self.role.extract_state(),
+                self.sessions.clone(),
                 &self.clients,
             ),
         };

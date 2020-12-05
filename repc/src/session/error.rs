@@ -10,6 +10,7 @@ pub enum SessionError {
         expected: Sequence,
         actual: Sequence,
     },
+    RequestTooStale,
 }
 
 impl fmt::Display for SessionError {
@@ -22,6 +23,10 @@ impl fmt::Display for SessionError {
                 f,
                 "session does not match. expected: {}, actual: {}",
                 expected, actual
+            ),
+            SessionError::RequestTooStale => write!(
+                f,
+                "request has too old session id. stored response has been lost",
             ),
         }
     }

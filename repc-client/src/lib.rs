@@ -34,6 +34,14 @@ where
         }
     }
 
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
     pub async fn register(&mut self) -> Result<(), Error> {
         let res = self
             .inner
