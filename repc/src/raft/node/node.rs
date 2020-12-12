@@ -230,7 +230,13 @@ where
         sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
-        tracing::trace!(id = self.id, term = self.term, "received a command");
+        tracing::trace!(
+            id = self.id,
+            term = self.term,
+            client_id = u64::from(client_id),
+            sequence = u64::from(sequence),
+            "received a command"
+        );
         self.role
             .handle_command(command, client_id, sequence, tx)
             .await;

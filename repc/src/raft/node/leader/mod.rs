@@ -147,7 +147,7 @@ where
                             let client_id =
                                 RepcClientId::from(response.get_ref().clone().get_u64());
                             sessions.register(client_id).await;
-                            tracing::debug!(
+                            tracing::info!(
                                 client_id = u64::from(client_id),
                                 "registered a new client"
                             );

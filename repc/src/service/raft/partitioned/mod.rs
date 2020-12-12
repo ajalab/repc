@@ -157,6 +157,26 @@ impl<S: Raft> Handle<S> {
             .map_err(|_| HandleError::ServiceDropped)?;
         Ok(request)
     }
+
+    pub async fn expect_request_vote_success(&mut self) {
+        self.pass_request_vote_request()
+            .await
+            .expect("sending a RequestVote request must be successful")
+            .1
+            .pass_response()
+            .expect("receiving a RequestVote response must be successful")
+            .expect("RequestVote response should be success");
+    }
+
+    pub async fn expect_append_entries_success(&mut self) {
+        self.pass_append_entries_request()
+            .await
+            .expect("sending a AppendEntries request must be successful")
+            .1
+            .pass_response()
+            .expect("receiving a AppendEntries response must be successful")
+            .expect("AppendEntries response should be success");
+    }
 }
 
 pub struct ResponseHandle<Response> {

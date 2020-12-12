@@ -26,7 +26,7 @@ impl fmt::Display for SessionError {
             ),
             SessionError::RequestTooStale => write!(
                 f,
-                "request has too old session id. stored response has been lost",
+                "request has too old session sequence. stored response has been lost",
             ),
         }
     }

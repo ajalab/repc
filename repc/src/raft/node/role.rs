@@ -55,7 +55,10 @@ where
             Role::Candidate {
                 ref mut candidate, ..
             } => candidate.handle_request_vote_response(res, id).await,
-            _ => unimplemented!(),
+            _ => {
+                tracing::debug!(target_id = id, "ignore stale RequestVote response");
+                false
+            }
         }
     }
 

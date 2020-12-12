@@ -52,7 +52,7 @@ impl<S> PartitionedLocalRepcGroup<S>
 where
     S: StateMachine + Send + Sync + 'static,
 {
-    pub fn spawn(self) -> PartitionedLocalRaftGroupHandle<RaftService> {
+    pub fn spawn(self) -> PartitionedLocalRepcGroupHandle<RaftService> {
         const BUFFER: usize = 10;
 
         let nodes: HashMap<NodeId, _> = self
@@ -106,19 +106,19 @@ where
             tokio::spawn(node.clients(clients).run());
         }
 
-        PartitionedLocalRaftGroupHandle {
+        PartitionedLocalRepcGroupHandle {
             handles: raft_client_handles,
             repc_clients,
         }
     }
 }
 
-pub struct PartitionedLocalRaftGroupHandle<R> {
+pub struct PartitionedLocalRepcGroupHandle<R> {
     handles: HashMap<NodeId, HashMap<NodeId, Handle<R>>>,
     repc_clients: HashMap<NodeId, RepcClient<RepcServer<RepcService>>>,
 }
 
-impl<R> PartitionedLocalRaftGroupHandle<R>
+impl<R> PartitionedLocalRepcGroupHandle<R>
 where
     R: Raft,
 {
@@ -182,6 +182,18 @@ where
         self.raft_handle_mut(i, j)
             .block_append_entries_request()
             .await
+    }
+
+    pub async fn expect_request_vote_success(&mut self, i: NodeId, j: NodeId) {
+        self.raft_handle_mut(i, j)
+            .expect_request_vote_success()
+            .await;
+    }
+
+    pub async fn expect_append_entries_success(&mut self, i: NodeId, j: NodeId) {
+        self.raft_handle_mut(i, j)
+            .expect_append_entries_success()
+            .await;
     }
 
     pub async fn unary<P, T1, T2>(

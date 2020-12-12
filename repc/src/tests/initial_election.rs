@@ -1,5 +1,5 @@
 use super::app::IncrState;
-use super::init;
+use super::util::init;
 use crate::configuration::*;
 use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
 use crate::pb::raft::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
