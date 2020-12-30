@@ -4,8 +4,6 @@ use std::fmt;
 
 #[derive(Clone, Debug)]
 pub enum StateMachineError {
-    ManagerTerminated,
-    ManagerCrashed,
     UnknownPath(String),
     DecodeRequestFailed(DecodeError),
     EncodeResponseFailed(EncodeError),
@@ -16,11 +14,6 @@ impl fmt::Display for StateMachineError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use StateMachineError::*;
         match self {
-            ManagerTerminated => write!(f, "the state machine has been terminated"),
-            ManagerCrashed => write!(
-                f,
-                "the state machine has been crashed during command processing"
-            ),
             UnknownPath(path) => write!(f, "unknown path: {}", path),
             DecodeRequestFailed(e) => {
                 write!(f, "failed to decode the request: ")?;
