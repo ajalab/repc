@@ -1,5 +1,5 @@
 use super::commit_manager::CommitManagerNotifier;
-use super::message::Appended;
+use super::message::Ready;
 use crate::configuration::LeaderConfiguration;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::AppendEntriesRequest;
@@ -8,14 +8,17 @@ use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{
+    mpsc::{self, error::TrySendError},
+    RwLock,
+};
 use tokio::time;
 use tonic::body::BoxBody;
 use tonic::client::GrpcService;
 use tonic::codegen::StdError;
 
 pub struct Appender {
-    tx: mpsc::Sender<Appended>,
+    tx: mpsc::Sender<Ready>,
 }
 
 impl Appender {
@@ -34,7 +37,7 @@ impl Appender {
         T::Future: Send,
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
     {
-        let (tx, rx) = mpsc::channel::<Appended>(1);
+        let (tx, rx) = mpsc::channel::<Ready>(1);
         let mut appender = Appender { tx };
         let process = AppenderProcess {
             id,
@@ -47,24 +50,15 @@ impl Appender {
             rx,
         };
 
-        // Notify to appender beforehand to send heartbeat immediately
-        if let Err(e) = appender.try_notify() {
-            tracing::warn!(
-                id,
-                term,
-                target_id,
-                "failed to notify appender[{}]: {}",
-                target_id,
-                e
-            );
-        }
-
         tokio::spawn(process.run());
         appender
     }
 
-    pub fn try_notify(&mut self) -> Result<(), mpsc::error::TrySendError<Appended>> {
-        self.tx.try_send(Appended)
+    /// Returns true if succeeded.
+    /// Otherwise false if the target appender process is down.
+    pub fn try_notify(&mut self) -> bool {
+        let result = self.tx.try_send(Ready);
+        !matches!(result, Err(TrySendError::Closed(_)))
     }
 }
 
@@ -74,7 +68,7 @@ struct AppenderProcess<S, T> {
     conf: Arc<LeaderConfiguration>,
     target_id: NodeId,
     client: RaftClient<T>,
-    rx: mpsc::Receiver<Appended>,
+    rx: mpsc::Receiver<Ready>,
     commit_manager_notifier: CommitManagerNotifier,
     state: Weak<RwLock<State<S>>>,
 }
@@ -104,7 +98,7 @@ where
             let state = state.read().await;
             state.log().last_index() + 1
         };
-        let mut match_index;
+        let mut match_index = 0;
 
         loop {
             if wait_notification {
@@ -166,9 +160,8 @@ where
             )
             .await;
 
-            match res {
+            let (notify, success) = match res {
                 Err(_) => {
-                    // TODO: fall into follower if it can't reach the majority of nodes
                     tracing::warn!(
                         id = self.id,
                         term = self.term,
@@ -176,9 +169,9 @@ where
                         "AppendRequest aborted because it reached the deadline: {}ms",
                         self.conf.wait_append_entries_response_timeout_millis,
                     );
+                    (true, false)
                 }
                 Ok(Err(e)) => {
-                    // TODO: fall into follower if it can't reach the majority of nodes
                     tracing::warn!(
                         id = self.id,
                         term = self.term,
@@ -186,6 +179,7 @@ where
                         "AppendRequest failed due to a connection error: {}",
                         e,
                     );
+                    (true, false)
                 }
                 Ok(Ok(res)) => {
                     let res = res.into_inner();
@@ -195,27 +189,33 @@ where
                             id = self.id,
                             term = self.term,
                             target_id = self.target_id,
-                            "AppendRequest succeeded. updating match_index to {}",
+                            "AppendRequest succeeded in appending {} entries. Updating match_index from {} to {}",
+                            n_entries,
+                            prev_log_index,
                             match_index,
                         );
-                        if let Err(e) = self
-                            .commit_manager_notifier
-                            .notify_replicated(self.target_id, match_index)
-                            .await
-                        {
-                            tracing::warn!(
-                                id = self.id,
-                                term = self.term,
-                                target_id = self.target_id,
-                                "match_index update is not reported to CommitManager: {}",
-                                e
-                            );
-                        }
                         wait_notification = true;
+                        (true, true)
                     } else {
                         next_index -= 1;
                         wait_notification = false;
+                        (false, false)
                     }
+                }
+            };
+            if notify {
+                if let Err(e) = self
+                    .commit_manager_notifier
+                    .notify(self.target_id, match_index, success)
+                    .await
+                {
+                    tracing::warn!(
+                        id = self.id,
+                        term = self.term,
+                        target_id = self.target_id,
+                        "append result is not notified to CommitManager: {}",
+                        e
+                    );
                 }
             }
         }

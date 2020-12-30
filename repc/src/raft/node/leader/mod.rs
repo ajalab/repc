@@ -1,5 +1,6 @@
 mod appender;
 mod commit_manager;
+mod error;
 mod message;
 
 use self::appender::Appender;
@@ -49,7 +50,7 @@ where
         let leader_conf = Arc::new(conf.leader.clone());
         let state = Arc::new(RwLock::new(state));
 
-        let nodes = iter::once(id).chain(clients.keys().copied());
+        let nodes = clients.keys().copied();
         let (commit_manager, commit_manager_notifier) =
             CommitManager::spawn(nodes, Arc::downgrade(&state));
 
