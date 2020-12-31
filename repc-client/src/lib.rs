@@ -51,7 +51,7 @@ where
             .into_inner();
 
         self.id = res.id;
-        self.sequence = 0;
+        self.sequence = 1;
 
         Ok(())
     }
@@ -67,7 +67,7 @@ where
         let mut request = Request::new(CommandRequest {
             path: path.as_ref().to_string(),
             body: body.to_vec(),
-            sequence: 0,
+            sequence: self.sequence,
         });
         self.embed_request_metadata(&mut request);
 
