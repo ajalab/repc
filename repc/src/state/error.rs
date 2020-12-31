@@ -1,13 +1,14 @@
 use prost::{DecodeError, EncodeError};
 use std::error;
 use std::fmt;
+use tonic::Status;
 
 #[derive(Clone, Debug)]
 pub enum StateMachineError {
     UnknownPath(String),
     DecodeRequestFailed(DecodeError),
     EncodeResponseFailed(EncodeError),
-    ApplyFailed(tonic::Status),
+    ApplyFailed(Status),
 }
 
 impl fmt::Display for StateMachineError {
@@ -28,14 +29,24 @@ impl fmt::Display for StateMachineError {
     }
 }
 
-impl error::Error for StateMachineError {}
-
-impl StateMachineError {
-    pub fn into_status(self) -> tonic::Status {
+impl error::Error for StateMachineError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         use StateMachineError::*;
         match self {
+            UnknownPath(_) => None,
+            DecodeRequestFailed(e) => Some(e),
+            EncodeResponseFailed(e) => Some(e),
+            ApplyFailed(e) => Some(e),
+        }
+    }
+}
+
+impl From<StateMachineError> for Status {
+    fn from(e: StateMachineError) -> Status {
+        use StateMachineError::*;
+        match e {
             ApplyFailed(status) => status,
-            _ => tonic::Status::internal(self.to_string()),
+            _ => Status::internal(e.to_string()),
         }
     }
 }

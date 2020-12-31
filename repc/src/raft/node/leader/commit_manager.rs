@@ -66,7 +66,7 @@ impl CommitManagerSubscription {
                     })) if applied_index >= index => {
                         Some(result.map_err(CommandError::StateMachineError))
                     }
-                    Ok(Err(_)) => Some(Err(CommandError::NotLeader)),
+                    Ok(Err(e)) => Some(Err(CommandError::CommitError(e))),
                     Err(broadcast::RecvError::Closed) => Some(Err(CommandError::NotLeader)),
                     Err(broadcast::RecvError::Lagged(n)) => {
                         tracing::warn!("commit notification is lagging: {}", n);

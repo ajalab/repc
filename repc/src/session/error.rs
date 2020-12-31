@@ -1,3 +1,4 @@
+use std::error;
 use std::fmt;
 use tonic::Status;
 
@@ -32,8 +33,10 @@ impl fmt::Display for SessionError {
     }
 }
 
-impl SessionError {
-    pub fn into_status(self) -> Status {
-        Status::invalid_argument(self.to_string())
+impl error::Error for SessionError {}
+
+impl From<SessionError> for Status {
+    fn from(e: SessionError) -> Status {
+        Status::invalid_argument(e.to_string())
     }
 }

@@ -1,6 +1,6 @@
 mod appender;
 mod commit_manager;
-mod error;
+pub mod error;
 mod message;
 
 use self::appender::Appender;

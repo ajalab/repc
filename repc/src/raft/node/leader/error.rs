@@ -2,6 +2,7 @@ use crate::types::NodeId;
 use std::collections::HashSet;
 use std::error;
 use std::fmt;
+use tonic::Status;
 
 #[derive(Debug, Clone)]
 pub enum CommitError {
@@ -17,9 +18,14 @@ impl fmt::Display for CommitError {
         match self {
             CommitError::NotLeader => write!(f, "node turned into non-leader state during its commit process"),
             CommitError::Isolated(nodes) => write!(f, "node failed to commit an entry as it could not replicate it to the majority of nodes: {:?}", nodes),
-
         }
     }
 }
 
 impl error::Error for CommitError {}
+
+impl From<CommitError> for Status {
+    fn from(e: CommitError) -> Status {
+        Status::internal(e.to_string())
+    }
+}
