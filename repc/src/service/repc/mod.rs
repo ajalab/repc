@@ -43,7 +43,7 @@ impl Repc for RepcService {
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        let client_id = get_client_id(&request).map_err(|e| e.into_status())?;
+        let client_id = get_client_id(&request).map_err(Status::from)?;
         let CommandRequest {
             path,
             body,
@@ -106,7 +106,7 @@ impl RepcService {
         if tx.send(command).await.is_ok() {
             match callback_rx.await {
                 Ok(Ok(response)) => Ok(response),
-                Ok(Err(e)) => Err(e.into_status()),
+                Ok(Err(e)) => Err(Status::from(e)),
                 Err(e) => Err(Status::internal(format!(
                     "channel to the node process has been closed: {}",
                     e

@@ -20,8 +20,8 @@ impl fmt::Display for RepcServiceError {
 
 impl std::error::Error for RepcServiceError {}
 
-impl RepcServiceError {
-    pub fn into_status(self) -> Status {
-        Status::invalid_argument(self.to_string())
+impl From<RepcServiceError> for Status {
+    fn from(e: RepcServiceError) -> Status {
+        Status::invalid_argument(e.to_string())
     }
 }

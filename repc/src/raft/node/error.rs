@@ -35,10 +35,10 @@ impl error::Error for CommandError {
     }
 }
 
-impl CommandError {
-    pub fn into_status(self) -> Status {
-        match self {
-            CommandError::NotLeader => Status::internal(self.to_string()),
+impl From<CommandError> for Status {
+    fn from(e: CommandError) -> Self {
+        match e {
+            CommandError::NotLeader => Status::internal(e.to_string()),
             CommandError::StateMachineError(e) => Status::from(e),
             CommandError::SessionError(e) => Status::from(e),
             CommandError::CommitError(e) => Status::from(e),
