@@ -1,6 +1,8 @@
-use crate::app::adder::{pb::adder_server::AdderStateMachine, AdderState};
 use crate::util::init;
-use repc::configuration::*;
+use crate::{
+    app::adder::{pb::adder_server::AdderStateMachine, AdderState},
+    util::configuration::{follower_wannabee, leader_wannabee},
+};
 use repc::test_util::{
     partitioned::group::PartitionedLocalRepcGroupBuilder,
     pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse},
@@ -9,30 +11,9 @@ use repc::test_util::{
 #[tokio::test]
 async fn initial_election() {
     init();
-    let forever = 1000 * 60 * 60 * 24 * 365;
-    let conf1 = Configuration {
-        leader: LeaderConfiguration {
-            wait_append_entries_response_timeout_millis: forever,
-            heartbeat_timeout_millis: forever,
-        },
-        follower: FollowerConfiguration {
-            election_timeout_millis: 0,
-            election_timeout_jitter_millis: 0,
-        },
-        ..Default::default()
-    };
-    let conf2 = Configuration {
-        candidate: CandidateConfiguration {
-            election_timeout_millis: forever,
-            ..Default::default()
-        },
-        follower: FollowerConfiguration {
-            election_timeout_millis: forever,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let conf3 = conf2.clone();
+    let conf1 = leader_wannabee();
+    let conf2 = follower_wannabee();
+    let conf3 = follower_wannabee();
 
     let state_machines = (0..3)
         .map(|_| AdderStateMachine::new(AdderState::default()))
