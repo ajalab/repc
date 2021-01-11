@@ -56,7 +56,7 @@ async fn send_command_healthy() {
     }
     let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
         .repc_client_mut(1)
-        .unary("/Add.Add/Add", AddRequest { i: 10 })
+        .unary("/adder.Adder/Add", AddRequest { i: 10 })
         .await;
 
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
@@ -134,7 +134,7 @@ async fn send_command_failure_critical() {
 
     let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
         .repc_client_mut(1)
-        .unary("/Add.Add/Add", AddRequest { i: 10 })
+        .unary("/adder.Adder/Add", AddRequest { i: 10 })
         .await;
 
     assert!(res.is_err());
