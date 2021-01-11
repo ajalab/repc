@@ -1,18 +1,26 @@
-use super::app::{IncrRequest, IncrResponse, IncrState};
-use super::util::{
+use crate::app::adder::{
+    pb::{adder_server::AdderStateMachine, AddRequest, AddResponse},
+    AdderState,
+};
+use crate::util::{
     configuration::{follower_wannabee, leader_wannabee},
     init,
 };
-use crate::group::partitioned::{PartitionedLocalRepcGroup, PartitionedLocalRepcGroupBuilder};
+use repc::test_util::partitioned::group::{
+    PartitionedLocalRepcGroup, PartitionedLocalRepcGroupBuilder,
+};
 
-fn group_leader_1() -> PartitionedLocalRepcGroup<IncrState> {
+fn group_leader_1() -> PartitionedLocalRepcGroup<AdderStateMachine<AdderState>> {
     let conf1 = leader_wannabee();
     let conf2 = follower_wannabee();
     let conf3 = follower_wannabee();
 
-    PartitionedLocalRepcGroupBuilder::default()
+    let state_machines = (0..3)
+        .map(|_| AdderStateMachine::new(AdderState::default()))
+        .collect::<Vec<_>>();
+    PartitionedLocalRepcGroupBuilder::new()
         .confs(vec![conf1, conf2, conf3])
-        .initial_states(vec![IncrState::default(); 3])
+        .state_machines(state_machines)
         .build()
 }
 
@@ -46,12 +54,12 @@ async fn send_command_healthy() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let res: Result<tonic::Response<IncrResponse>, tonic::Status> = handle
+    let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
         .repc_client_mut(1)
-        .unary("/incr.Incr/Incr", IncrRequest { i: 10 })
+        .unary("/Add.Add/Add", AddRequest { i: 10 })
         .await;
 
-    assert_eq!(IncrResponse { n: 10 }, res.unwrap().into_inner());
+    assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 }
 
 #[tokio::test]
@@ -85,12 +93,12 @@ async fn send_command_failure_noncritical() {
     let mut h = handle.raft_handle(1, 3).clone();
     tokio::spawn(async move { h.block_append_entries_request().await });
 
-    let res: Result<tonic::Response<IncrResponse>, tonic::Status> = handle
+    let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
         .repc_client_mut(1)
-        .unary("/incr.Incr/Incr", IncrRequest { i: 10 })
+        .unary("/adder.Adder/Add", AddRequest { i: 10 })
         .await;
 
-    assert_eq!(IncrResponse { n: 10 }, res.unwrap().into_inner());
+    assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 }
 
 #[tokio::test]
@@ -124,9 +132,9 @@ async fn send_command_failure_critical() {
     let mut h = handle.raft_handle(1, 3).clone();
     tokio::spawn(async move { h.block_append_entries_request().await });
 
-    let res: Result<tonic::Response<IncrResponse>, tonic::Status> = handle
+    let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
         .repc_client_mut(1)
-        .unary("/incr.Incr/Incr", IncrRequest { i: 10 })
+        .unary("/Add.Add/Add", AddRequest { i: 10 })
         .await;
 
     assert!(res.is_err());

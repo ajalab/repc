@@ -1,4 +1,4 @@
-use crate::configuration::*;
+use repc::configuration::*;
 
 const FOREVER: u64 = 1000 * 60 * 60 * 24 * 365;
 

@@ -19,11 +19,7 @@ tower-service = { version = "0.3" }
 tower = { version = "0.3" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 tracing = "0.1"
-clap = "2.33"
 rand = "0.7"
-
-[dev-dependencies]
-tracing-subscriber = "0.2"
 
 [build-dependencies]
 tonic-build = "0.3"

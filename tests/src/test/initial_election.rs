@@ -1,8 +1,10 @@
-use super::app::IncrState;
-use super::util::init;
-use crate::configuration::*;
-use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
-use crate::pb::raft::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse};
+use crate::app::adder::{pb::adder_server::AdderStateMachine, AdderState};
+use crate::util::init;
+use repc::configuration::*;
+use repc::test_util::{
+    partitioned::group::PartitionedLocalRepcGroupBuilder,
+    pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse},
+};
 
 #[tokio::test]
 async fn initial_election() {
@@ -32,9 +34,12 @@ async fn initial_election() {
     };
     let conf3 = conf2.clone();
 
-    let group = PartitionedLocalRepcGroupBuilder::default()
+    let state_machines = (0..3)
+        .map(|_| AdderStateMachine::new(AdderState::default()))
+        .collect::<Vec<_>>();
+    let group = PartitionedLocalRepcGroupBuilder::new()
         .confs(vec![conf1, conf2, conf3])
-        .initial_states(vec![IncrState::default(); 3])
+        .state_machines(state_machines)
         .build();
     let mut handle = group.spawn();
 

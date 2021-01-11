@@ -1,3 +1,4 @@
+use super::service::raft::{error::HandleError, partition, Handle, ResponseHandle};
 use crate::configuration::Configuration;
 use crate::pb::raft::{
     raft_client::RaftClient,
@@ -5,7 +6,6 @@ use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::raft::node::Node;
-use crate::service::raft::partitioned::{error::HandleError, partition, Handle, ResponseHandle};
 use crate::service::raft::RaftService;
 use crate::service::repc::RepcService;
 use crate::state::StateMachine;
@@ -16,16 +16,22 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tonic::Status;
 
-#[derive(Default)]
 pub struct PartitionedLocalRepcGroupBuilder<S> {
     confs: Vec<Configuration>,
-    initial_states: Vec<S>,
+    state_machines: Vec<S>,
 }
 
 impl<S> PartitionedLocalRepcGroupBuilder<S> {
-    pub fn initial_states(self, initial_states: Vec<S>) -> Self {
+    pub fn new() -> Self {
         Self {
-            initial_states,
+            confs: vec![],
+            state_machines: vec![],
+        }
+    }
+
+    pub fn state_machines(self, state_machines: Vec<S>) -> Self {
+        Self {
+            state_machines,
             ..self
         }
     }
@@ -35,10 +41,10 @@ impl<S> PartitionedLocalRepcGroupBuilder<S> {
     }
 
     pub fn build(self) -> PartitionedLocalRepcGroup<S> {
-        debug_assert_eq!(self.confs.len(), self.initial_states.len());
+        debug_assert_eq!(self.confs.len(), self.state_machines.len());
         PartitionedLocalRepcGroup {
             confs: self.confs,
-            state_machines: self.initial_states,
+            state_machines: self.state_machines,
         }
     }
 }

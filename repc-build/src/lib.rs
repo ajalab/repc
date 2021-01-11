@@ -54,10 +54,54 @@ impl prost_build::ServiceGenerator for ServiceGenerator {
     }
 }
 
-pub fn configure() -> Config {
-    Config {
-        prost_config: prost_build::Config::new(),
-        generator_config: ServiceGeneratorConfig::new(),
+pub struct Config {
+    out_dir: Option<PathBuf>,
+    format: bool,
+}
+
+impl Config {
+    pub fn new() -> Self {
+        Config {
+            out_dir: None,
+            format: true,
+        }
+    }
+
+    pub fn out_dir<P>(mut self, path: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.out_dir = Some(path.into());
+        self
+    }
+
+    pub fn compile<P>(self, protos: &[P], includes: &[P]) -> io::Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        let Config { out_dir, format } = self;
+        let out_dir = if let Some(out_dir) = out_dir {
+            out_dir
+        } else {
+            PathBuf::from(std::env::var("OUT_DIR").expect("expected OUT_DIR envvar is defined"))
+        };
+
+        let mut prost_config = prost_build::Config::new();
+
+        prost_config.out_dir(out_dir.clone());
+        let generator_config = ServiceGeneratorConfig::new();
+        prost_config.service_generator(Box::new(ServiceGenerator::new(generator_config)));
+        prost_config.compile_protos(protos, includes)?;
+
+        if format {
+            tonic_build::fmt(
+                out_dir
+                    .to_str()
+                    .expect("expected outdir is encoded in utf-8"),
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -67,34 +111,7 @@ where
 {
     let proto_path = proto.as_ref();
     let proto_dir = proto_path.parent().unwrap();
-    configure().compile(&[proto_path], &[proto_dir])
-}
-
-pub struct Config {
-    prost_config: prost_build::Config,
-    generator_config: ServiceGeneratorConfig,
-}
-
-impl Config {
-    pub fn compile<P>(self, protos: &[P], includes: &[P]) -> io::Result<()>
-    where
-        P: AsRef<Path>,
-    {
-        let Config {
-            prost_config: mut config,
-            generator_config,
-        } = self;
-        config.service_generator(Box::new(ServiceGenerator::new(generator_config)));
-        config.compile_protos(protos, includes)
-    }
-
-    pub fn out_dir<P>(&mut self, path: P) -> &mut Self
-    where
-        P: Into<PathBuf>,
-    {
-        self.prost_config.out_dir(path);
-        self
-    }
+    Config::new().compile(&[proto_path], &[proto_dir])
 }
 
 fn camel_to_snake(s: &str) -> String {

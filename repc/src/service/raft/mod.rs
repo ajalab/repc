@@ -1,6 +1,3 @@
-#[cfg(test)]
-pub mod partitioned;
-
 use crate::pb::raft::raft_server::Raft;
 use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,

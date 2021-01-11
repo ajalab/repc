@@ -1,11 +1,11 @@
-use super::{
-    app::IncrState,
+use crate::{
+    app::adder::{pb::adder_server::AdderStateMachine, AdderState},
     util::{
         configuration::{follower_wannabee, leader_wannabee},
         init,
     },
 };
-use crate::group::partitioned::PartitionedLocalRepcGroupBuilder;
+use repc::test_util::partitioned::group::PartitionedLocalRepcGroupBuilder;
 
 #[tokio::test]
 async fn register() {
@@ -14,9 +14,12 @@ async fn register() {
     let conf2 = follower_wannabee();
     let conf3 = follower_wannabee();
 
-    let group = PartitionedLocalRepcGroupBuilder::default()
+    let state_machines = (0..3)
+        .map(|_| AdderStateMachine::new(AdderState::default()))
+        .collect::<Vec<_>>();
+    let group = PartitionedLocalRepcGroupBuilder::new()
         .confs(vec![conf1, conf2, conf3])
-        .initial_states(vec![IncrState::default(); 3])
+        .state_machines(state_machines)
         .build();
     let mut handle = group.spawn();
 
