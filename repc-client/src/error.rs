@@ -2,19 +2,19 @@ use std::fmt;
 use tonic::Status;
 
 #[derive(Debug)]
-pub enum Error {
-    RegisterError(Status),
-}
+pub struct RegisterError(Status);
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Error::RegisterError(status) => {
-                write!(f, "RegisterError: ")?;
-                status.fmt(f)
-            }
-        }
+impl RegisterError {
+    pub fn new(status: Status) -> Self {
+        RegisterError(status)
     }
 }
 
-impl std::error::Error for Error {}
+impl fmt::Display for RegisterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RegisterError: ")?;
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for RegisterError {}

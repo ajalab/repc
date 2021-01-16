@@ -10,11 +10,10 @@ use crate::service::raft::RaftService;
 use crate::service::repc::RepcService;
 use crate::state::StateMachine;
 use crate::types::NodeId;
-use repc_client::RepcClient;
+use repc_client::{error::RegisterError, RepcClient};
 use repc_proto::repc_server::RepcServer;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tonic::Status;
 
 pub struct PartitionedLocalRepcGroupBuilder<S> {
     confs: Vec<Configuration>,
@@ -97,14 +96,9 @@ where
             raft_client_handles.insert(src_id, handles);
         }
 
-        let repc_clients: HashMap<NodeId, _> = nodes
+        let repc_services: HashMap<NodeId, _> = nodes
             .iter()
-            .map(|(&i, node)| {
-                (
-                    i,
-                    RepcClient::new(RepcServer::new(RepcService::new(node.get_tx()))),
-                )
-            })
+            .map(|(&i, node)| (i, RepcService::new(node.get_tx())))
             .collect();
 
         for (id, node) in nodes.into_iter() {
@@ -114,14 +108,14 @@ where
 
         PartitionedLocalRepcGroupHandle {
             handles: raft_client_handles,
-            repc_clients,
+            repc_services,
         }
     }
 }
 
 pub struct PartitionedLocalRepcGroupHandle<R> {
     handles: HashMap<NodeId, HashMap<NodeId, Handle<R>>>,
-    repc_clients: HashMap<NodeId, RepcClient<RepcServer<RepcService>>>,
+    repc_services: HashMap<NodeId, RepcService>,
 }
 
 impl<R> PartitionedLocalRepcGroupHandle<R>
@@ -136,8 +130,12 @@ where
         self.handles.get_mut(&i).unwrap().get_mut(&j).unwrap()
     }
 
-    pub fn repc_client_mut(&mut self, i: NodeId) -> &mut RepcClient<RepcServer<RepcService>> {
-        self.repc_clients.get_mut(&i).unwrap()
+    pub async fn register_client(
+        &self,
+        i: NodeId,
+    ) -> Result<RepcClient<RepcServer<RepcService>>, RegisterError> {
+        let service = self.repc_services.get(&i).unwrap().clone();
+        RepcClient::register(RepcServer::new(service)).await
     }
 
     pub async fn pass_request_vote_request(
@@ -200,20 +198,5 @@ where
         self.raft_handle_mut(i, j)
             .expect_append_entries_success()
             .await;
-    }
-
-    pub async fn unary<P, T1, T2>(
-        &mut self,
-        i: NodeId,
-        path: P,
-        req: T1,
-    ) -> Result<tonic::Response<T2>, Status>
-    where
-        P: AsRef<str>,
-        T1: prost::Message,
-        T2: prost::Message + Default,
-    {
-        let repc_client = self.repc_clients.get_mut(&i).unwrap();
-        repc_client.unary(path, req).await
     }
 }

@@ -36,9 +36,5 @@ async fn register() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    handle
-        .repc_client_mut(1)
-        .register()
-        .await
-        .expect("should be ok");
+    handle.register_client(1).await.expect("should be ok");
 }

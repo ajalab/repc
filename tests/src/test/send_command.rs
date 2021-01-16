@@ -43,21 +43,15 @@ async fn send_command_healthy() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    handle
-        .repc_client_mut(1)
-        .register()
-        .await
-        .expect("should be ok");
+    let mut client = handle.register_client(1).await.expect("should be ok");
 
     // Send a command
     for &i in &[2, 3] {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
-        .repc_client_mut(1)
-        .unary("/adder.Adder/Add", AddRequest { i: 10 })
-        .await;
+    let res: Result<tonic::Response<AddResponse>, tonic::Status> =
+        client.unary("/adder.Adder/Add", AddRequest { i: 10 }).await;
 
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 }
@@ -81,11 +75,7 @@ async fn send_command_failure_noncritical() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    handle
-        .repc_client_mut(1)
-        .register()
-        .await
-        .expect("should be ok");
+    let mut client = handle.register_client(1).await.expect("should be ok");
 
     // Only a few nodes (not majority) fail
     let mut h = handle.raft_handle(1, 2).clone();
@@ -93,10 +83,8 @@ async fn send_command_failure_noncritical() {
     let mut h = handle.raft_handle(1, 3).clone();
     tokio::spawn(async move { h.block_append_entries_request().await });
 
-    let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
-        .repc_client_mut(1)
-        .unary("/adder.Adder/Add", AddRequest { i: 10 })
-        .await;
+    let res: Result<tonic::Response<AddResponse>, tonic::Status> =
+        client.unary("/adder.Adder/Add", AddRequest { i: 10 }).await;
 
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 }
@@ -120,11 +108,7 @@ async fn send_command_failure_critical() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    handle
-        .repc_client_mut(1)
-        .register()
-        .await
-        .expect("should be ok");
+    let mut client = handle.register_client(1).await.expect("should be ok");
 
     // Majority of nodes fail
     let mut h = handle.raft_handle(1, 2).clone();
@@ -132,10 +116,8 @@ async fn send_command_failure_critical() {
     let mut h = handle.raft_handle(1, 3).clone();
     tokio::spawn(async move { h.block_append_entries_request().await });
 
-    let res: Result<tonic::Response<AddResponse>, tonic::Status> = handle
-        .repc_client_mut(1)
-        .unary("/adder.Adder/Add", AddRequest { i: 10 })
-        .await;
+    let res: Result<tonic::Response<AddResponse>, tonic::Status> =
+        client.unary("/adder.Adder/Add", AddRequest { i: 10 }).await;
 
     assert!(res.is_err());
 }
