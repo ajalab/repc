@@ -9,6 +9,8 @@ use crate::util::{
 use repc::test_util::partitioned::group::{
     PartitionedLocalRepcGroup, PartitionedLocalRepcGroupBuilder,
 };
+use repc_client::RepcClient;
+use repc_proto::repc_server::RepcServer;
 
 fn group_leader_1() -> PartitionedLocalRepcGroup<AdderStateMachine<AdderState>> {
     let conf1 = leader_wannabee();
@@ -43,7 +45,10 @@ async fn send_command_healthy() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let mut client = handle.register_client(1).await.expect("should be ok");
+    let service = handle.service(1).clone();
+    let mut client = RepcClient::register(RepcServer::new(service))
+        .await
+        .expect("should be ok");
 
     // Send a command
     for &i in &[2, 3] {
@@ -75,7 +80,10 @@ async fn send_command_failure_noncritical() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let mut client = handle.register_client(1).await.expect("should be ok");
+    let service = handle.service(1).clone();
+    let mut client = RepcClient::register(RepcServer::new(service))
+        .await
+        .expect("should be ok");
 
     // Only a few nodes (not majority) fail
     let mut h = handle.raft_handle(1, 2).clone();
@@ -108,7 +116,10 @@ async fn send_command_failure_critical() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let mut client = handle.register_client(1).await.expect("should be ok");
+    let service = handle.service(1).clone();
+    let mut client = RepcClient::register(RepcServer::new(service))
+        .await
+        .expect("should be ok");
 
     // Majority of nodes fail
     let mut h = handle.raft_handle(1, 2).clone();

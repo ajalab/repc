@@ -10,8 +10,6 @@ use crate::service::raft::RaftService;
 use crate::service::repc::RepcService;
 use crate::state::StateMachine;
 use crate::types::NodeId;
-use repc_client::{error::RegisterError, RepcClient};
-use repc_proto::repc_server::RepcServer;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -130,12 +128,8 @@ where
         self.handles.get_mut(&i).unwrap().get_mut(&j).unwrap()
     }
 
-    pub async fn register_client(
-        &self,
-        i: NodeId,
-    ) -> Result<RepcClient<RepcServer<RepcService>>, RegisterError> {
-        let service = self.repc_services.get(&i).unwrap().clone();
-        RepcClient::register(RepcServer::new(service)).await
+    pub fn service(&self, i: NodeId) -> &RepcService {
+        self.repc_services.get(&i).unwrap()
     }
 
     pub async fn pass_request_vote_request(

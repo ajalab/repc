@@ -6,6 +6,8 @@ use crate::{
     },
 };
 use repc::test_util::partitioned::group::PartitionedLocalRepcGroupBuilder;
+use repc_client::RepcClient;
+use repc_proto::repc_server::RepcServer;
 
 #[tokio::test]
 async fn register() {
@@ -36,5 +38,8 @@ async fn register() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    handle.register_client(1).await.expect("should be ok");
+    let service = handle.service(1).clone();
+    RepcClient::register(RepcServer::new(service))
+        .await
+        .expect("should be ok");
 }
