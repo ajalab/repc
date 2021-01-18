@@ -1,17 +1,17 @@
-use super::camel_to_snake;
+use super::util;
 use proc_macro2::{Ident, Span, TokenStream};
 use prost_build::Service;
-use quote::{quote, ToTokens};
+use quote::quote;
 
 pub fn generate(service: &Service, proto_path: &str) -> TokenStream {
+    let mod_name = quote::format_ident!("{}_server", util::camel_to_snake(&service.name));
     let trait_def = generate_trait_def(service, proto_path);
     let state_machine_def = generate_state_machine_def(service);
     let state_machine_impl = generate_state_machine_impl(service);
     let state_machine_trait_impl = generate_state_machine_trait_impl(service);
-    let server_mod = quote::format_ident!("{}_server", camel_to_snake(&service.name));
 
     quote! {
-        pub mod #server_mod {
+        pub mod #mod_name {
             #trait_def
 
             #state_machine_def
@@ -38,9 +38,10 @@ fn generate_trait_methods(service: &Service, proto_path: &str) -> TokenStream {
     let mut stream = TokenStream::new();
     for method in &service.methods {
         let name = Ident::new(&method.name, Span::call_site());
-        let req_message = resolve_message(proto_path, &method.input_proto_type, &method.input_type);
+        let req_message =
+            util::resolve_message(proto_path, &method.input_proto_type, &method.input_type);
         let res_message =
-            resolve_message(proto_path, &method.output_proto_type, &method.output_type);
+            util::resolve_message(proto_path, &method.output_proto_type, &method.output_type);
         let method = match (method.client_streaming, method.server_streaming) {
             (false, false) => {
                 quote! {
@@ -102,15 +103,10 @@ fn generate_state_machine_trait_impl(service: &Service) -> TokenStream {
 }
 
 fn genearte_state_machine_impl_match_arms(service: &Service) -> TokenStream {
-    let path_parent = if service.package.is_empty() {
-        format!("/{}", service.proto_name)
-    } else {
-        format!("/{}.{}", service.package, service.proto_name)
-    };
     let mut stream = TokenStream::new();
 
     for method in &service.methods {
-        let path = format!("{}/{}", path_parent, method.proto_name);
+        let path = util::resolve_method_path(service, method);
         let method_name = Ident::new(&method.name, Span::call_site());
         let arm = quote! {
             #path => repc::codegen::handle_request(body, |req| self.inner.#method_name(req)),
@@ -129,14 +125,4 @@ fn resolve_trait_name(service: &Service) -> Ident {
 
 fn resolve_state_machine_name(service: &Service) -> Ident {
     quote::format_ident!("{}StateMachine", service.name)
-}
-
-fn resolve_message(proto_path: &str, proto_type: &str, ty: &str) -> TokenStream {
-    if proto_type.starts_with(".google.protobuf") || proto_type.starts_with("::") {
-        proto_type.parse::<TokenStream>().unwrap()
-    } else {
-        syn::parse_str::<syn::Path>(&format!("{}::{}", proto_path, ty))
-            .unwrap()
-            .to_token_stream()
-    }
 }

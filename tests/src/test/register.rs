@@ -1,12 +1,14 @@
 use crate::{
-    app::adder::{pb::adder_server::AdderStateMachine, AdderState},
+    app::adder::{
+        pb::{adder_client::AdderClient, adder_server::AdderStateMachine},
+        AdderState,
+    },
     util::{
         configuration::{follower_wannabee, leader_wannabee},
         init,
     },
 };
 use repc::test_util::partitioned::group::PartitionedLocalRepcGroupBuilder;
-use repc_client::RepcClient;
 use repc_proto::repc_server::RepcServer;
 
 #[tokio::test]
@@ -39,7 +41,7 @@ async fn register() {
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
     let service = handle.service(1).clone();
-    RepcClient::register(RepcServer::new(service))
+    AdderClient::register(RepcServer::new(service))
         .await
         .expect("should be ok");
 }

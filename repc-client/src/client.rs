@@ -7,7 +7,7 @@ use super::error::RegisterError;
 use bytes::{Bytes, BytesMut};
 use http_body::Body as HttpBody;
 use repc_proto::{repc_client::RepcClient as TonicRepcClient, CommandRequest, RegisterRequest};
-use tonic::{body::Body, Request, Response, Status};
+use tonic::{body::Body, IntoRequest, Request, Response, Status};
 
 type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
@@ -40,19 +40,29 @@ where
         &self.session
     }
 
-    pub async fn unary<P, T1, T2>(&mut self, path: P, req: T1) -> Result<Response<T2>, Status>
+    pub async fn unary<P, T1, T2>(
+        &mut self,
+        path: P,
+        req: impl IntoRequest<T1>,
+    ) -> Result<Response<T2>, Status>
     where
         P: AsRef<str>,
         T1: prost::Message,
         T2: prost::Message + Default,
     {
+        let mut req = req.into_request();
+        let metadata = std::mem::take(req.metadata_mut());
+
         let mut body = BytesMut::new();
-        req.encode(&mut body).unwrap();
+        req.into_inner().encode(&mut body).unwrap();
+
         let mut request = Request::new(CommandRequest {
             path: path.as_ref().to_string(),
             body: body.to_vec(),
             sequence: self.session.sequence(),
         });
+        *request.metadata_mut() = metadata;
+
         let _ = SessionMetadataEncoder.encode(&self.session, request.metadata_mut());
 
         let mut response = self.client.unary_command(request).await?;

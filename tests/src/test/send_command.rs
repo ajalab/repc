@@ -1,5 +1,5 @@
 use crate::app::adder::{
-    pb::{adder_server::AdderStateMachine, AddRequest, AddResponse},
+    pb::{adder_client::AdderClient, adder_server::AdderStateMachine, AddRequest, AddResponse},
     AdderState,
 };
 use crate::util::{
@@ -9,7 +9,6 @@ use crate::util::{
 use repc::test_util::partitioned::group::{
     PartitionedLocalRepcGroup, PartitionedLocalRepcGroupBuilder,
 };
-use repc_client::RepcClient;
 use repc_proto::repc_server::RepcServer;
 
 fn group_leader_1() -> PartitionedLocalRepcGroup<AdderStateMachine<AdderState>> {
@@ -46,7 +45,7 @@ async fn send_command_healthy() {
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
     let service = handle.service(1).clone();
-    let mut client = RepcClient::register(RepcServer::new(service))
+    let mut client = AdderClient::register(RepcServer::new(service))
         .await
         .expect("should be ok");
 
@@ -56,7 +55,7 @@ async fn send_command_healthy() {
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
     let res: Result<tonic::Response<AddResponse>, tonic::Status> =
-        client.unary("/adder.Adder/Add", AddRequest { i: 10 }).await;
+        client.add(AddRequest { i: 10 }).await;
 
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 }
@@ -81,7 +80,7 @@ async fn send_command_failure_noncritical() {
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
     let service = handle.service(1).clone();
-    let mut client = RepcClient::register(RepcServer::new(service))
+    let mut client = AdderClient::register(RepcServer::new(service))
         .await
         .expect("should be ok");
 
@@ -92,7 +91,7 @@ async fn send_command_failure_noncritical() {
     tokio::spawn(async move { h.block_append_entries_request().await });
 
     let res: Result<tonic::Response<AddResponse>, tonic::Status> =
-        client.unary("/adder.Adder/Add", AddRequest { i: 10 }).await;
+        client.add(AddRequest { i: 10 }).await;
 
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 }
@@ -117,7 +116,7 @@ async fn send_command_failure_critical() {
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
     let service = handle.service(1).clone();
-    let mut client = RepcClient::register(RepcServer::new(service))
+    let mut client = AdderClient::register(RepcServer::new(service))
         .await
         .expect("should be ok");
 
@@ -128,7 +127,7 @@ async fn send_command_failure_critical() {
     tokio::spawn(async move { h.block_append_entries_request().await });
 
     let res: Result<tonic::Response<AddResponse>, tonic::Status> =
-        client.unary("/adder.Adder/Add", AddRequest { i: 10 }).await;
+        client.add(AddRequest { i: 10 }).await;
 
     assert!(res.is_err());
 }

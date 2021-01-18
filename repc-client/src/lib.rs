@@ -1,4 +1,5 @@
 mod client;
+pub mod codegen;
 pub mod error;
 mod session;
 

@@ -1,27 +1,11 @@
 pub mod client;
 pub mod server;
+mod util;
 
-use proc_macro2::TokenStream;
 use prost_build::Service;
 use quote::quote;
 use std::io;
 use std::path::{Path, PathBuf};
-
-struct ServiceGenerator {
-    config: ServiceGeneratorConfig,
-    clients: TokenStream,
-    servers: TokenStream,
-}
-
-impl ServiceGenerator {
-    fn new(config: ServiceGeneratorConfig) -> Self {
-        ServiceGenerator {
-            config,
-            clients: TokenStream::default(),
-            servers: TokenStream::default(),
-        }
-    }
-}
 
 struct ServiceGeneratorConfig {
     proto_path: String,
@@ -36,6 +20,16 @@ impl ServiceGeneratorConfig {
             build_server: true,
             build_client: true,
         }
+    }
+}
+
+struct ServiceGenerator {
+    config: ServiceGeneratorConfig,
+}
+
+impl ServiceGenerator {
+    fn new(config: ServiceGeneratorConfig) -> Self {
+        ServiceGenerator { config }
     }
 }
 
@@ -112,43 +106,4 @@ where
     let proto_path = proto.as_ref();
     let proto_dir = proto_path.parent().unwrap();
     Config::new().compile(&[proto_path], &[proto_dir])
-}
-
-fn camel_to_snake(s: &str) -> String {
-    let mut buf = String::new();
-    let mut iter = s.chars();
-
-    if let Some(c) = iter.next() {
-        buf.push(c.to_ascii_lowercase());
-    }
-    while let Some(c) = iter.next() {
-        let l = c.to_ascii_lowercase();
-        if c != l {
-            buf.push('_');
-        }
-        buf.push(l);
-    }
-
-    buf
-}
-
-#[cfg(test)]
-mod tests {
-    use super::camel_to_snake;
-    #[test]
-    fn test_camel_to_snake() {
-        let cases = &[
-            ("", ""),
-            ("A", "a"),
-            ("Test", "test"),
-            ("TestTest", "test_test"),
-            ("TestATest", "test_a_test"),
-            ("TesTT", "tes_t_t"),
-            ("TTest", "t_test"),
-        ];
-
-        for &(input, expected) in cases {
-            assert_eq!(camel_to_snake(input), expected);
-        }
-    }
 }
