@@ -17,7 +17,8 @@ tokio = { version = "0.2", features = ["macros", "time", "sync", "stream"] }
 tower-service = { version = "0.3" }
 tower = { version = "0.3" }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
-tracing = "0.1"
+tracing = "0.1.23"
+tracing-futures = "0.2"
 rand = "0.7"
 
 [build-dependencies]

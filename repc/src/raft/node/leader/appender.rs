@@ -38,7 +38,7 @@ impl Appender {
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
     {
         let (tx, rx) = mpsc::channel::<Ready>(1);
-        let mut appender = Appender { tx };
+        let appender = Appender { tx };
         let process = AppenderProcess {
             id,
             term,

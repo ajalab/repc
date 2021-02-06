@@ -3,9 +3,10 @@ use crate::pb::raft::{
     log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
     RequestVoteResponse,
 };
-use crate::session::{RepcClientId, Sequence};
+use crate::session::RepcClientId;
 use crate::types::NodeId;
 use bytes::Bytes;
+use repc_proto::types::Sequence;
 use std::error;
 use tokio::sync::{mpsc, oneshot};
 

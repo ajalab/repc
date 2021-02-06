@@ -4,17 +4,17 @@ use super::follower;
 use super::leader;
 use super::role::Role;
 use crate::configuration::Configuration;
-use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::{
-    log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
-    RequestVoteResponse,
+    log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
+    RequestVoteRequest, RequestVoteResponse,
 };
 use crate::raft::message::Message;
+use crate::session::RepcClientId;
 use crate::session::Sessions;
-use crate::session::{RepcClientId, Sequence};
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
+use repc_proto::types::Sequence;
 use std::collections::HashMap;
 use std::error;
 use std::sync::Arc;
@@ -22,6 +22,7 @@ use tokio::sync::{mpsc, oneshot};
 use tonic::body::BoxBody;
 use tonic::client::GrpcService;
 use tonic::codegen::StdError;
+use tracing::Instrument;
 
 pub struct Node<S, T> {
     id: NodeId,
@@ -196,8 +197,20 @@ where
         req: AppendEntriesRequest,
         mut tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
     ) {
-        self.update_term(req.leader_id, req.term);
-        let res = self.role.handle_append_entries_request(req).await;
+        let span = tracing::trace_span!(
+            target: "node",
+            "handle_append_entries_request",
+            id = self.id,
+            term = self.term,
+            leader_id = req.leader_id,
+        );
+
+        let res = async {
+            self.update_term(req.leader_id, req.term);
+            self.role.handle_append_entries_request(req).await
+        }
+        .instrument(span)
+        .await;
 
         let id = self.id;
         let term = self.term;
@@ -230,15 +243,17 @@ where
         sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
-        tracing::trace!(
+        let span = tracing::trace_span!(
+            target: "node",
+            "handle_command",
             id = self.id,
             term = self.term,
             client_id = u64::from(client_id),
             sequence = u64::from(sequence),
-            "received a command"
         );
         self.role
             .handle_command(command, client_id, sequence, tx)
+            .instrument(span)
             .await;
     }
 

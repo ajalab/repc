@@ -2,15 +2,15 @@ use super::candidate::Candidate;
 use super::error::CommandError;
 use super::follower::Follower;
 use super::leader::Leader;
-use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::{
-    log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
-    RequestVoteResponse,
+    log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
+    RequestVoteRequest, RequestVoteResponse,
 };
-use crate::session::{RepcClientId, Sequence};
+use crate::session::RepcClientId;
 use crate::state::{State, StateMachine};
 use crate::types::NodeId;
 use bytes::Bytes;
+use repc_proto::types::Sequence;
 use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::oneshot;

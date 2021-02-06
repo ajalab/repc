@@ -4,8 +4,8 @@ use self::error::SessionError;
 use crate::raft::node::error::CommandError;
 use crate::util;
 use bytes::Bytes;
+use repc_proto::types::Sequence;
 use std::collections::HashMap;
-use std::fmt;
 use tokio::sync::RwLock;
 use tonic::Response;
 
@@ -30,41 +30,6 @@ impl From<RepcClientId> for u64 {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-pub struct Sequence(u64);
-
-impl Sequence {
-    fn succ(&self) -> Sequence {
-        Sequence(self.0 + 1)
-    }
-
-    fn is_succ(&self, sequence: Sequence) -> bool {
-        self.0 == sequence.0 + 1
-    }
-
-    fn is_stale(&self, sequence: Sequence) -> bool {
-        self.0 <= sequence.0
-    }
-}
-
-impl From<u64> for Sequence {
-    fn from(sequence: u64) -> Self {
-        Sequence(sequence)
-    }
-}
-
-impl From<Sequence> for u64 {
-    fn from(sequence: Sequence) -> Self {
-        sequence.0
-    }
-}
-
-impl fmt::Display for Sequence {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
 struct Session {
     sequence: Sequence,
     response: Option<Result<Response<Bytes>, CommandError>>,
@@ -85,6 +50,7 @@ impl Sessions {
                 response: None,
             },
         );
+        tracing::info!(client_id = u64::from(client_id), "registered a new client");
     }
 
     pub async fn verify(
@@ -97,20 +63,24 @@ impl Sessions {
             .get(&client_id)
             .ok_or_else(|| SessionError::ClientNotRegistered)?;
 
-        if sequence.is_succ(session.sequence) {
+        if sequence == session.sequence + 1 {
+            tracing::trace!("verification succeeded");
             Ok(None)
-        } else if sequence.is_stale(session.sequence) {
+        } else if sequence == session.sequence {
             match session.response.as_ref() {
-                // TODO: Remove clone
-                Some(response) => Ok(Some(match response {
-                    Ok(res) => Ok(util::clone_response(res)),
-                    Err(e) => Err(e.clone()),
-                })),
+                Some(response) => {
+                    tracing::trace!("duplicated request");
+                    // TODO: Remove clone
+                    Ok(Some(match response {
+                        Ok(res) => Ok(util::clone_response(res)),
+                        Err(e) => Err(e.clone()),
+                    }))
+                }
                 None => Err(SessionError::RequestTooStale),
             }
         } else {
             Err(SessionError::SessionInvalid {
-                expected: session.sequence.succ(),
+                expected: session.sequence + 1,
                 actual: sequence,
             })
         }

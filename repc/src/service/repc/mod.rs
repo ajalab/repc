@@ -4,14 +4,15 @@ mod error;
 use self::error::RepcServiceError;
 use crate::pb::raft::{log_entry::Command, Action, Register};
 use crate::raft::message::Message;
-use crate::session::{RepcClientId, Sequence};
+use crate::session::RepcClientId;
 use bytes::{Buf, Bytes};
 use repc_proto::{
-    repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
-    METADATA_REPC_CLIENT_ID_KEY,
+    metadata::METADATA_REPC_CLIENT_ID_KEY, repc_server::Repc, types::Sequence, CommandRequest,
+    CommandResponse, RegisterRequest, RegisterResponse,
 };
 use tokio::sync::{mpsc, oneshot};
 use tonic::{Request, Response, Status, Streaming};
+use tracing::Instrument;
 
 #[derive(Clone)]
 pub struct RepcService {
@@ -39,6 +40,19 @@ fn get_client_id<T>(request: &Request<T>) -> Result<RepcClientId, RepcServiceErr
 
 #[tonic::async_trait]
 impl Repc for RepcService {
+    async fn register(
+        &self,
+        _request: Request<RegisterRequest>,
+    ) -> Result<Response<RegisterResponse>, Status> {
+        let span = tracing::trace_span!("register");
+
+        let command = Command::Register(Register {});
+        self.handle_command(command, RepcClientId::default(), Sequence::default())
+            .instrument(span)
+            .await
+            .map(|response| response.map(|mut body| RegisterResponse { id: body.get_u64() }))
+    }
+
     async fn unary_command(
         &self,
         request: Request<CommandRequest>,
@@ -51,7 +65,15 @@ impl Repc for RepcService {
         } = request.into_inner();
         let command = Command::Action(Action { path, body });
         let sequence = Sequence::from(sequence);
+
+        let span = tracing::trace_span!(
+            "unary_command",
+            client_id = u64::from(client_id),
+            sequence = sequence
+        );
+
         self.handle_command(command, client_id, sequence)
+            .instrument(span)
             .await
             .map(|response| {
                 response.map(|body| CommandResponse {
@@ -60,19 +82,9 @@ impl Repc for RepcService {
             })
     }
 
-    async fn register(
-        &self,
-        request: Request<RegisterRequest>,
-    ) -> Result<Response<RegisterResponse>, Status> {
-        let command = Command::Register(Register {});
-        self.handle_command(command, RepcClientId::default(), Sequence::default())
-            .await
-            .map(|response| response.map(|mut body| RegisterResponse { id: body.get_u64() }))
-    }
-
     async fn client_stream_command(
         &self,
-        request: Request<Streaming<CommandRequest>>,
+        _request: Request<Streaming<CommandRequest>>,
     ) -> Result<tonic::Response<CommandResponse>, Status> {
         Err(Status::internal("unimplemented"))
     }
@@ -81,7 +93,7 @@ impl Repc for RepcService {
 
     async fn server_stream_command(
         &self,
-        request: Request<CommandRequest>,
+        _request: Request<CommandRequest>,
     ) -> Result<Response<Self::ServerStreamCommandStream>, Status> {
         Err(Status::internal("unimplemented"))
     }

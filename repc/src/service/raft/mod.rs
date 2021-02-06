@@ -6,7 +6,7 @@ use crate::raft::message::Message;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RaftService {
     tx_msg: mpsc::Sender<Message>,
 }
@@ -19,6 +19,7 @@ impl RaftService {
 
 #[tonic::async_trait]
 impl Raft for RaftService {
+    #[tracing::instrument(level = "trace")]
     async fn request_vote(
         &self,
         request: Request<RequestVoteRequest>,
@@ -47,6 +48,7 @@ impl Raft for RaftService {
             })
     }
 
+    #[tracing::instrument(level = "trace")]
     async fn append_entries(
         &self,
         request: Request<AppendEntriesRequest>,
