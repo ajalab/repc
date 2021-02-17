@@ -3,12 +3,13 @@ use super::message::{Applied, Replicated};
 use crate::raft::node::error::CommandError;
 use crate::state::log::LogIndex;
 use crate::state::{State, StateMachine};
-use crate::types::NodeId;
+use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use futures::{future, StreamExt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Weak;
 use tokio::sync::{broadcast, mpsc, RwLock};
+use tracing::Instrument;
 
 pub struct CommitManager {
     tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
@@ -17,6 +18,8 @@ pub struct CommitManager {
 
 impl CommitManager {
     pub fn spawn<S>(
+        id: NodeId,
+        term: Term,
         nodes: impl Iterator<Item = NodeId>,
         state: Weak<RwLock<State<S>>>,
     ) -> (Self, CommitManagerNotifier)
@@ -26,7 +29,8 @@ impl CommitManager {
         let (tx_applied, rx_applied) = broadcast::channel(100);
         let (tx_replicated, rx_replicated) = mpsc::channel(100);
 
-        let process = CommitManagerProcess::new(tx_applied.clone(), rx_replicated, nodes, state);
+        let process =
+            CommitManagerProcess::new(id, term, tx_applied.clone(), rx_replicated, nodes, state);
         tokio::spawn(process.run());
 
         let commit_manager = CommitManager {
@@ -100,6 +104,8 @@ impl CommitManagerNotifier {
 }
 
 struct CommitManagerProcess<S> {
+    id: NodeId,
+    term: Term,
     tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
     rx_replicated: mpsc::Receiver<Replicated>,
     match_indices: HashMap<NodeId, LogIndex>,
@@ -113,6 +119,8 @@ where
     S: StateMachine,
 {
     fn new(
+        id: NodeId,
+        term: Term,
         tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
         rx_replicated: mpsc::Receiver<Replicated>,
         nodes: impl Iterator<Item = NodeId>,
@@ -120,6 +128,8 @@ where
     ) -> Self {
         let match_indices = nodes.zip(std::iter::repeat(LogIndex::default())).collect();
         Self {
+            id,
+            term,
             tx_applied,
             rx_replicated,
             match_indices,
@@ -141,18 +151,33 @@ where
         self.committed_index = state.last_committed();
         drop(state);
 
-        while let Some(replicated) = self.rx_replicated.recv().await {
-            tracing::trace!("get replication result: {:?}", replicated);
-            let result = if replicated.success() {
-                self.handle_replication_success(replicated.id(), replicated.index())
-                    .await
-            } else {
-                self.handle_replication_failure(replicated.id())
-            };
-            if let Err(e) = result {
-                let _ = self.tx_applied.send(Err(e));
-                break;
+        let span = tracing::info_span!(
+            target: "leader::commit_manager",
+            "commit_manager",
+            id = self.id,
+            term = self.term,
+        );
+        async {
+            tracing::info!("started commit manager");
+            while let Some(replicated) = self.rx_replicated.recv().await {
+                let span =
+                    tracing::trace_span!(target: "leader::commit_manager", "handle_replication");
+                if let Err(e) = self.handle_replication(replicated).instrument(span).await {
+                    let _ = self.tx_applied.send(Err(e));
+                    break;
+                }
             }
+        }
+        .instrument(span)
+        .await;
+    }
+
+    async fn handle_replication(&mut self, replicated: Replicated) -> Result<(), CommitError> {
+        if replicated.success() {
+            self.handle_replication_success(replicated.id(), replicated.index())
+                .await
+        } else {
+            self.handle_replication_failure(replicated.id())
         }
     }
 
@@ -197,7 +222,7 @@ where
     }
 
     /// Returns `false` if the node cannot stay as a leader anymore, that is,
-    /// it fails to connect with the majority of nodes.
+    /// it fails to connect to the majority of nodes.
     fn handle_replication_failure(&mut self, id: NodeId) -> Result<(), CommitError> {
         self.failed_nodes.insert(id);
 
@@ -209,7 +234,7 @@ where
         );
         if self.failed_nodes.len() > total_nodes / 2 {
             tracing::error!(
-                "failed to connect with the majority of nodes: {:?}. stopping commit manager",
+                "failed to replicate data to the majority of nodes: {:?}. stopping commit manager",
                 self.failed_nodes,
             );
             Err(CommitError::Isolated(self.failed_nodes.clone()))

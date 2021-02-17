@@ -13,7 +13,6 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub struct Follower<S> {
-    id: NodeId,
     term: Term,
     deadline_clock: DeadlineClock,
     voted_for: Option<NodeId>,
@@ -37,17 +36,11 @@ where
 
         let deadline_clock = DeadlineClock::spawn(timeout_millis, async move {
             if let Err(_) = tx.send(Message::ElectionTimeout).await {
-                tracing::warn!(
-                    id,
-                    term,
-                    state = "follower",
-                    "failed to send message ElectionTimeout",
-                );
+                tracing::warn!("failed to send message ElectionTimeout",);
             }
         });
 
         Follower {
-            id,
             term,
             voted_for: None,
             deadline_clock,
@@ -84,39 +77,19 @@ where
         }
 
         if vote_granted {
-            tracing::debug!(
-                id = self.id,
-                term = self.term,
-                target_id = req.candidate_id,
-                "granted vote from {}",
-                req.candidate_id,
-            );
+            tracing::debug!("granted vote");
         } else if !valid_term {
-            tracing::debug!(
-                id = self.id,
-                term = self.term,
-                target_id = req.candidate_id,
-                "refused vote from {} because the request has invalid term: {}",
-                req.candidate_id,
-                req.term,
-            );
+            tracing::debug!("refused vote because the request has invalid term");
         } else if !valid_candidate {
             tracing::debug!(
-                id = self.id,
-                term = self.term,
-                target_id = req.candidate_id,
-                "refused vote from {} because we have voted to another: {:?}",
-                req.candidate_id,
+                "refused vote because we have voted to another: {:?}",
                 self.voted_for,
             );
         } else {
             tracing::debug!(
-                id=self.id,
-                term=self.term,
-                target_id = req.candidate_id,
-                "refused vote from {} because the request has outdated last log term & index: ({}, {})",
-                req.candidate_id,
-                req.last_log_term, req.last_log_index,
+                "refused vote because the request has outdated last log term & index: ({}, {})",
+                req.last_log_term,
+                req.last_log_index,
             );
         }
 
@@ -135,8 +108,6 @@ where
 
         if req.term != self.term {
             tracing::debug!(
-                id = self.id,
-                term = self.term,
                 target_id = req.leader_id,
                 "refuse AppendEntry request from {}: invalid term {}",
                 req.leader_id,
@@ -158,8 +129,6 @@ where
 
             if prev_log_term != Some(req.prev_log_term) {
                 tracing::debug!(
-                    id = self.id,
-                    term = self.term,
                     target_id = req.leader_id,
                     "refuse AppendEntry request from {}: previous log term of the request ({}) doesn't match the actual term ({})",
                     req.leader_id,
@@ -193,8 +162,6 @@ where
         }
         state.append_log_entries(req.entries.into_iter().skip(i as usize));
         tracing::trace!(
-            id = self.id,
-            term = self.term,
             target_id = req.leader_id,
             "append entries replicated from {}",
             req.leader_id,
@@ -203,20 +170,13 @@ where
         // commit log
         let last_committed = state.commit(req.last_committed_index);
         tracing::trace!(
-            id = self.id,
-            term = self.term,
             target_id = req.leader_id,
             "commit log at index {}",
             last_committed,
         );
 
         if let Err(e) = self.reset_deadline().await {
-            tracing::warn!(
-                id = self.id,
-                term = self.term,
-                "failed to reset deadline: {}",
-                e
-            );
+            tracing::warn!("failed to reset deadline: {}", e);
         };
 
         Ok(AppendEntriesResponse {

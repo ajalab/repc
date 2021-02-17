@@ -8,7 +8,7 @@ use crate::pb::raft::{
 };
 use crate::session::RepcClientId;
 use crate::state::{State, StateMachine};
-use crate::types::NodeId;
+use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use repc_proto::types::Sequence;
 use std::collections::HashMap;
@@ -17,6 +17,7 @@ use tokio::sync::oneshot;
 use tonic::body::BoxBody;
 use tonic::client::GrpcService;
 use tonic::codegen::StdError;
+use tracing::Instrument;
 
 pub enum Role<S> {
     Follower { follower: Follower<S> },
@@ -28,6 +29,14 @@ impl<S> Role<S>
 where
     S: StateMachine,
 {
+    fn to_ident(&self) -> &'static str {
+        match self {
+            Role::Follower { .. } => "follower",
+            Role::Candidate { .. } => "candidate",
+            Role::Leader { .. } => "leader",
+        }
+    }
+
     pub fn extract_state(&mut self) -> State<S> {
         match self {
             Role::Follower { follower } => follower.extract_state(),
@@ -38,12 +47,26 @@ where
 
     pub async fn handle_request_vote_request(
         &mut self,
+        term: Term,
         req: RequestVoteRequest,
     ) -> Result<RequestVoteResponse, Box<dyn Error + Send>> {
-        match self {
-            Role::Follower { ref mut follower } => follower.handle_request_vote_request(req).await,
-            _ => unimplemented!(),
+        let span = tracing::trace_span!(
+            target: "role",
+            "handle_request_vote_request",
+            term = term,
+            role = self.to_ident(),
+        );
+
+        async {
+            match self {
+                Role::Follower { ref mut follower } => {
+                    follower.handle_request_vote_request(req).await
+                }
+                _ => unimplemented!(),
+            }
         }
+        .instrument(span)
+        .await
     }
 
     pub async fn handle_request_vote_response(
@@ -51,15 +74,25 @@ where
         res: RequestVoteResponse,
         id: NodeId,
     ) -> bool {
-        match self {
-            Role::Candidate {
-                ref mut candidate, ..
-            } => candidate.handle_request_vote_response(res, id).await,
-            _ => {
-                tracing::debug!(target_id = id, "ignore stale RequestVote response");
-                false
+        let span = tracing::trace_span!(
+            target: "role",
+            "handle_request_vote_response",
+            role = self.to_ident(),
+        );
+
+        async {
+            match self {
+                Role::Candidate {
+                    ref mut candidate, ..
+                } => candidate.handle_request_vote_response(res, id).await,
+                _ => {
+                    tracing::debug!(target_id = id, "ignore stale RequestVote response");
+                    false
+                }
             }
         }
+        .instrument(span)
+        .await
     }
 
     pub async fn handle_append_entries_request(
@@ -74,18 +107,33 @@ where
         }
     }
 
-    pub async fn handle_election_timeout<T>(&mut self, clients: &HashMap<NodeId, RaftClient<T>>)
-    where
+    pub async fn handle_election_timeout<T>(
+        &mut self,
+        term: Term,
+        clients: &HashMap<NodeId, RaftClient<T>>,
+    ) where
         T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
         T::Future: Send,
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
     {
-        match self {
-            Role::Candidate { ref mut candidate } => {
-                candidate.handle_election_timeout(clients).await
+        let span = tracing::info_span!(
+            target: "role",
+            "handle_election_timeout",
+            term = term,
+            role = self.to_ident(),
+        );
+
+        async {
+            match self {
+                Role::Candidate { ref mut candidate } => {
+                    candidate.handle_election_timeout(clients).await
+                }
+                // TODO: handle the case where the node is already a leader.
+                _ => unimplemented!(),
             }
-            _ => unimplemented!(),
         }
+        .instrument(span)
+        .await
     }
 
     pub async fn handle_command(

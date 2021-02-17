@@ -50,7 +50,7 @@ impl Sessions {
                 response: None,
             },
         );
-        tracing::info!(client_id = u64::from(client_id), "registered a new client");
+        tracing::debug!(client_id = u64::from(client_id), "registered a new client");
     }
 
     pub async fn verify(

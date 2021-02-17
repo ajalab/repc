@@ -7,14 +7,13 @@ use self::appender::Appender;
 use self::commit_manager::CommitManager;
 use super::error::CommandError;
 use crate::configuration::Configuration;
-use crate::pb::raft::{log_entry::Command, raft_client::RaftClient, Action, LogEntry, Register};
+use crate::pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry};
 use crate::session::{RepcClientId, Sessions};
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::{Buf, Bytes};
-use futures::FutureExt;
+use futures::{future::BoxFuture, FutureExt};
 use repc_proto::types::Sequence;
-use std::any::TypeId;
 use std::collections::HashMap;
 use std::iter;
 use std::sync::Arc;
@@ -22,10 +21,9 @@ use tokio::sync::{oneshot, RwLock};
 use tonic::body::BoxBody;
 use tonic::client::GrpcService;
 use tonic::codegen::StdError;
-use tracing::Level;
+use tracing::{Instrument, Level};
 
 pub struct Leader<S> {
-    id: NodeId,
     term: Term,
     appenders: Vec<Appender>,
     commit_manager: CommitManager,
@@ -55,18 +53,11 @@ where
 
         let nodes = clients.keys().copied();
         let (commit_manager, commit_manager_notifier) =
-            CommitManager::spawn(nodes, Arc::downgrade(&state));
+            CommitManager::spawn(id, term, nodes, Arc::downgrade(&state));
 
         let appenders = clients
             .iter()
             .map(|(&target_id, client)| {
-                tracing::debug!(
-                    id,
-                    term,
-                    target_id,
-                    "spawn a new appender for {}",
-                    target_id
-                );
                 Appender::spawn(
                     id,
                     term,
@@ -80,7 +71,6 @@ where
             .collect::<Vec<_>>();
 
         let leader = Leader {
-            id,
             term,
             appenders,
             commit_manager,
@@ -103,10 +93,9 @@ where
         sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
-        let sessions = self.sessions.clone();
         tracing::event!(Level::TRACE, "verification phase");
         if let Command::Action(_) = command {
-            match sessions.verify(client_id, sequence).await {
+            match self.sessions.verify(client_id, sequence).await {
                 Ok(Some(res)) => {
                     tx.send(res).unwrap();
                     return;
@@ -119,7 +108,7 @@ where
             }
         }
 
-        let command_type = get_command_type(&command);
+        let coprocessor = self.resolve_result_coprocessor(&command);
 
         let index = {
             let mut state = self.state.as_ref().unwrap().write().await;
@@ -130,33 +119,48 @@ where
             state.append_log_entries(iter::once(entry));
             state.last_index()
         };
+        tracing::trace!("appended a command at log index {}", index);
 
-        tracing::trace!(
-            id = self.id,
-            term = self.term,
-            "wrote a command at log index {}",
-            index
+        let subscription = self.commit_manager.subscribe();
+        let span = tracing::trace_span!(target: "leader", "coprocess_result");
+        tokio::spawn(
+            subscription
+                .wait_applied(index)
+                .then(coprocessor)
+                .map(|result| tx.send(result))
+                .instrument(span),
         );
 
         for appender in &mut self.appenders {
             let _ = appender.try_notify();
         }
+    }
 
-        let subscription = self.commit_manager.subscribe();
-        tokio::spawn(
-            subscription
-                .wait_applied(index)
-                .then(move |result| async move {
-                    if command_type == TypeId::of::<Register>() {
+    fn resolve_result_coprocessor(
+        &self,
+        command: &Command,
+    ) -> Box<
+        dyn FnOnce(
+                Result<tonic::Response<Bytes>, CommandError>,
+            ) -> BoxFuture<'static, Result<tonic::Response<Bytes>, CommandError>>
+            + Send,
+    > {
+        match command {
+            Command::Register(_) => {
+                let sessions = self.sessions.clone();
+                Box::new(move |result| {
+                    Box::pin(async move {
                         if let Ok(response) = result.as_ref() {
                             let client_id =
                                 RepcClientId::from(response.get_ref().clone().get_u64());
                             sessions.register(client_id).await;
                         }
-                    }
-                    tx.send(result)
-                }),
-        );
+                        result
+                    })
+                })
+            }
+            Command::Action(_) => Box::new(|result| Box::pin(async { result })),
+        }
     }
 
     pub fn extract_state(&mut self) -> State<S> {
@@ -164,12 +168,5 @@ where
             .ok()
             .expect("should have")
             .into_inner()
-    }
-}
-
-fn get_command_type(command: &Command) -> TypeId {
-    match command {
-        Command::Action(_) => TypeId::of::<Action>(),
-        Command::Register(_) => TypeId::of::<Register>(),
     }
 }

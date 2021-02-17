@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use tonic::body::BoxBody;
 use tonic::client::GrpcService;
 use tonic::codegen::StdError;
+use tracing::Instrument;
 
 pub struct Candidate<S> {
     id: NodeId,
@@ -75,9 +76,6 @@ where
     ) -> bool {
         if self.term != res.term {
             tracing::debug!(
-                id = self.id,
-                term = self.term,
-                target_id = id,
                 "ignored vote from {}, which belongs to the different term: {}",
                 id,
                 res.term,
@@ -86,41 +84,24 @@ where
         }
 
         if !res.vote_granted {
-            tracing::debug!(
-                id = self.id,
-                term = self.term,
-                target_id = id,
-                "vote requested to {} is refused",
-                id,
-            );
+            tracing::debug!("vote requested to {} was refused", id);
             return false;
         }
 
         if !self.votes.insert(id) {
             tracing::debug!(
-                id = self.id,
-                term = self.term,
-                target_id = id,
                 "received vote from {}, which already granted my vote in the current term",
                 id,
             );
             return false;
         }
 
-        tracing::debug!(
-            id = self.id,
-            term = self.term,
-            target_id = id,
-            "received vote from {}",
-            id,
-        );
+        tracing::debug!("received valid vote from {}", id);
 
         if self.votes.len() > self.quorum {
             tracing::info!(
-                id = self.id,
-                term = self.term,
-                "get a majority of votes from {:?}",
-                self.votes,
+                "got a majority of votes from nodes {:?}. will become a leader",
+                self.votes
             );
             return true;
         }
@@ -141,52 +122,39 @@ where
             let mut tx = self.tx.clone();
             let term = self.term;
             let candidate_id = self.id;
-            tokio::spawn(async move {
-                tracing::debug!(
-                    id = candidate_id,
-                    term,
-                    target_id = id,
-                    "sending RequestVoteRequest to {}",
-                    id,
-                );
-                let res = client
-                    .request_vote(RequestVoteRequest {
-                        term,
-                        candidate_id,
-                        last_log_index,
-                        last_log_term,
-                    })
-                    .await;
+            let span = tracing::debug_span!(target: "candidate", "send_request_vote_request", target_id = id);
+            tokio::spawn(
+                async move {
+                    tracing::debug!("sending request vote request");
+                    let res = client
+                        .request_vote(RequestVoteRequest {
+                            term,
+                            candidate_id,
+                            last_log_index,
+                            last_log_term,
+                        })
+                        .await;
 
-                match res {
-                    Ok(res) => {
-                        let r = tx
-                            .send(Message::RPCRequestVoteResponse {
-                                res: res.into_inner(),
-                                id,
-                            })
-                            .await;
-                        if let Err(e) = r {
-                            tracing::error!(
-                                id = candidate_id,
-                                term,
-                                target_id = id,
-                                "failed to send message: {}",
-                                e
-                            );
+                    match res {
+                        Ok(res) => {
+                            tracing::debug!("request vote request successful");
+                            let r = tx
+                                .send(Message::RPCRequestVoteResponse {
+                                    res: res.into_inner(),
+                                    id,
+                                })
+                                .await;
+                            if let Err(e) = r {
+                                tracing::error!("failed to send message to node: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!("sending request vote request failed: {}", e);
                         }
                     }
-                    Err(e) => {
-                        tracing::error!(
-                            id = candidate_id,
-                            term,
-                            target_id = id,
-                            "request vote rpc failed: {}",
-                            e
-                        );
-                    }
                 }
-            });
+                .instrument(span),
+            );
         }
     }
 
