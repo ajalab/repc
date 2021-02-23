@@ -3,8 +3,7 @@ use crate::configuration::Configuration;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::{RequestVoteRequest, RequestVoteResponse};
 use crate::raft::message::Message;
-use crate::state::State;
-use crate::state::StateMachine;
+use crate::state::{log::Log, State, StateMachine};
 use crate::types::{NodeId, Term};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -15,26 +14,27 @@ use tonic::client::GrpcService;
 use tonic::codegen::StdError;
 use tracing::Instrument;
 
-pub struct Candidate<S> {
+pub struct Candidate<S, L> {
     id: NodeId,
     term: Term,
     votes: HashSet<NodeId>,
     quorum: usize,
-    state: Option<State<S>>,
+    state: Option<State<S, L>>,
     tx: mpsc::Sender<Message>,
     _deadline_clock: DeadlineClock,
 }
 
-impl<S> Candidate<S>
+impl<S, L> Candidate<S, L>
 where
     S: StateMachine,
+    L: Log,
 {
     pub fn spawn(
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
         quorum: usize,
-        state: State<S>,
+        state: State<S, L>,
         tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
@@ -158,7 +158,7 @@ where
         }
     }
 
-    pub fn extract_state(&mut self) -> State<S> {
+    pub fn extract_state(&mut self) -> State<S, L> {
         self.state.take().unwrap()
     }
 }

@@ -1,6 +1,6 @@
 pub mod error;
 pub mod log;
-mod state_machine;
+pub mod state_machine;
 
 pub use state_machine::StateMachine;
 
@@ -9,26 +9,24 @@ use bytes::Bytes;
 use error::StateMachineError;
 use log::{Log, LogIndex};
 
-pub struct State<S> {
-    log: Log,
+pub struct State<S, L> {
     state_machine: S,
+    log: L,
     last_applied: LogIndex,
     last_committed: LogIndex,
 }
 
-impl<S> State<S> {
-    pub fn new(state_machine: S) -> Self {
+impl<S: StateMachine, L: Log> State<S, L> {
+    pub fn new(state_machine: S, log: L) -> Self {
         State {
-            log: Log::default(),
             state_machine,
+            log,
             last_applied: LogIndex::default(),
             last_committed: LogIndex::default(),
         }
     }
-}
 
-impl<S: StateMachine> State<S> {
-    pub fn log(&self) -> &Log {
+    pub fn log(&self) -> &L {
         &self.log
     }
 
@@ -45,7 +43,8 @@ impl<S: StateMachine> State<S> {
     }
 
     pub fn append_log_entries(&mut self, entries: impl Iterator<Item = LogEntry>) {
-        self.log.append(entries);
+        let len = self.log.append(entries);
+        tracing::trace!("appended {} entries to the log", len);
     }
 
     pub fn truncate_log(&mut self, i: LogIndex) {

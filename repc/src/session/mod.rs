@@ -4,7 +4,7 @@ use self::error::SessionError;
 use crate::raft::node::error::CommandError;
 use crate::util;
 use bytes::Bytes;
-use repc_proto::types::Sequence;
+use repc_proto::repc::types::Sequence;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tonic::Response;

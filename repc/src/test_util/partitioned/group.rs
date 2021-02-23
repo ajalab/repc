@@ -8,7 +8,7 @@ use crate::pb::raft::{
 use crate::raft::node::Node;
 use crate::service::raft::RaftService;
 use crate::service::repc::RepcService;
-use crate::state::StateMachine;
+use crate::state::{log::in_memory::InMemoryLog, State, StateMachine};
 use crate::types::NodeId;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -65,7 +65,8 @@ where
             .enumerate()
             .map(|(i, (conf, state_machine))| {
                 let id = i as NodeId + 1;
-                let node = Node::new(id, state_machine).conf(Arc::new(conf));
+                let state = State::new(state_machine, InMemoryLog::default());
+                let node = Node::new(id, state).conf(Arc::new(conf));
                 (id, node)
             })
             .collect();

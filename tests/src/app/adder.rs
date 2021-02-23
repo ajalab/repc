@@ -2,7 +2,7 @@ pub mod pb {
     tonic::include_proto!("adder");
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct AdderState {
     n: u32,
 }

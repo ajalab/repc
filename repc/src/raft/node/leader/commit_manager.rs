@@ -1,7 +1,7 @@
 use super::error::CommitError;
 use super::message::{Applied, Replicated};
 use crate::raft::node::error::CommandError;
-use crate::state::log::LogIndex;
+use crate::state::log::{Log, LogIndex};
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
@@ -17,14 +17,15 @@ pub struct CommitManager {
 }
 
 impl CommitManager {
-    pub fn spawn<S>(
+    pub fn spawn<S, L>(
         id: NodeId,
         term: Term,
         nodes: impl Iterator<Item = NodeId>,
-        state: Weak<RwLock<State<S>>>,
+        state: Weak<RwLock<State<S, L>>>,
     ) -> (Self, CommitManagerNotifier)
     where
         S: StateMachine + Send + Sync + 'static,
+        L: Log + Send + Sync + 'static,
     {
         let (tx_applied, rx_applied) = broadcast::channel(100);
         let (tx_replicated, rx_replicated) = mpsc::channel(100);
@@ -103,20 +104,21 @@ impl CommitManagerNotifier {
     }
 }
 
-struct CommitManagerProcess<S> {
+struct CommitManagerProcess<S, L> {
     id: NodeId,
     term: Term,
     tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
     rx_replicated: mpsc::Receiver<Replicated>,
     match_indices: HashMap<NodeId, LogIndex>,
-    state: Weak<RwLock<State<S>>>,
+    state: Weak<RwLock<State<S, L>>>,
     committed_index: LogIndex,
     failed_nodes: HashSet<NodeId>,
 }
 
-impl<S> CommitManagerProcess<S>
+impl<S, L> CommitManagerProcess<S, L>
 where
     S: StateMachine,
+    L: Log,
 {
     fn new(
         id: NodeId,
@@ -124,7 +126,7 @@ where
         tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
         rx_replicated: mpsc::Receiver<Replicated>,
         nodes: impl Iterator<Item = NodeId>,
-        state: Weak<RwLock<State<S>>>,
+        state: Weak<RwLock<State<S, L>>>,
     ) -> Self {
         let match_indices = nodes.zip(std::iter::repeat(LogIndex::default())).collect();
         Self {

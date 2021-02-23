@@ -9,11 +9,11 @@ use super::error::CommandError;
 use crate::configuration::Configuration;
 use crate::pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry};
 use crate::session::{RepcClientId, Sessions};
-use crate::state::{State, StateMachine};
+use crate::state::{log::Log, State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt};
-use repc_proto::types::Sequence;
+use repc_proto::repc::types::Sequence;
 use std::collections::HashMap;
 use std::iter;
 use std::sync::Arc;
@@ -23,23 +23,24 @@ use tonic::client::GrpcService;
 use tonic::codegen::StdError;
 use tracing::{Instrument, Level};
 
-pub struct Leader<S> {
+pub struct Leader<S, L> {
     term: Term,
     appenders: Vec<Appender>,
     commit_manager: CommitManager,
-    state: Option<Arc<RwLock<State<S>>>>,
+    state: Option<Arc<RwLock<State<S, L>>>>,
     sessions: Arc<Sessions>,
 }
 
-impl<S> Leader<S>
+impl<S, L> Leader<S, L>
 where
     S: StateMachine + Send + Sync + 'static,
+    L: Log + Send + Sync + 'static,
 {
     pub fn spawn<T>(
         id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
-        state: State<S>,
+        state: State<S, L>,
         sessions: Arc<Sessions>,
         clients: &HashMap<NodeId, RaftClient<T>>,
     ) -> Self
@@ -82,9 +83,10 @@ where
     }
 }
 
-impl<S> Leader<S>
+impl<S, L> Leader<S, L>
 where
     S: StateMachine,
+    L: Log,
 {
     pub async fn handle_command(
         &mut self,
@@ -163,7 +165,7 @@ where
         }
     }
 
-    pub fn extract_state(&mut self) -> State<S> {
+    pub fn extract_state(&mut self) -> State<S, L> {
         Arc::try_unwrap(self.state.take().unwrap())
             .ok()
             .expect("should have")

@@ -6,7 +6,7 @@ use crate::pb::raft::{log_entry::Command, Action, Register};
 use crate::raft::message::Message;
 use crate::session::RepcClientId;
 use bytes::{Buf, Bytes};
-use repc_proto::{
+use repc_proto::repc::{
     metadata::METADATA_REPC_CLIENT_ID_KEY, repc_server::Repc, types::Sequence, CommandRequest,
     CommandResponse, RegisterRequest, RegisterResponse,
 };

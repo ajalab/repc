@@ -11,10 +11,10 @@ use crate::pb::raft::{
 use crate::raft::message::Message;
 use crate::session::RepcClientId;
 use crate::session::Sessions;
-use crate::state::{State, StateMachine};
+use crate::state::{log::Log, State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
-use repc_proto::types::Sequence;
+use repc_proto::repc::types::Sequence;
 use std::collections::HashMap;
 use std::error;
 use std::sync::Arc;
@@ -24,23 +24,23 @@ use tonic::client::GrpcService;
 use tonic::codegen::StdError;
 use tracing::Instrument;
 
-pub struct Node<S, T> {
+pub struct Node<S, L, T> {
     id: NodeId,
     conf: Arc<Configuration>,
-    state: State<S>,
+    state: State<S, L>,
     clients: HashMap<NodeId, RaftClient<T>>,
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
 }
 
-impl<S, T> Node<S, T> {
-    pub fn new(id: NodeId, state_machine: S) -> Self {
+impl<S, L, T> Node<S, L, T> {
+    pub fn new(id: NodeId, state: State<S, L>) -> Self {
         let (tx, rx) = mpsc::channel(100);
 
         Self {
             id,
             conf: Arc::default(),
-            state: State::new(state_machine),
+            state,
             clients: HashMap::new(),
             tx,
             rx,
@@ -62,9 +62,10 @@ impl<S, T> Node<S, T> {
     }
 }
 
-impl<S, T> Node<S, T>
+impl<S, L, T> Node<S, L, T>
 where
     S: StateMachine + Send + Sync + 'static,
+    L: Log + Send + Sync + 'static,
     T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
     T::Future: Send,
     <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
@@ -74,7 +75,6 @@ where
         let sessions = Arc::new(Sessions::default());
         let role = Role::Follower {
             follower: follower::Follower::spawn(
-                self.id,
                 self.conf.clone(),
                 term,
                 self.state,
@@ -95,7 +95,7 @@ where
     }
 }
 
-struct NodeProcess<S, T> {
+struct NodeProcess<S, L, T> {
     id: NodeId,
     conf: Arc<Configuration>,
     sessions: Arc<Sessions>,
@@ -103,16 +103,17 @@ struct NodeProcess<S, T> {
     // TODO: make these persistent
     term: Term,
 
-    role: Role<S>,
+    role: Role<S, L>,
 
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
     clients: HashMap<NodeId, RaftClient<T>>,
 }
 
-impl<S, T> NodeProcess<S, T>
+impl<S, L, T> NodeProcess<S, L, T>
 where
     S: StateMachine + Send + Sync + 'static,
+    L: Log + Send + Sync + 'static,
     T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
     T::Future: Send,
     <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
@@ -299,7 +300,6 @@ where
 
         self.role = Role::Follower {
             follower: follower::Follower::spawn(
-                self.id,
                 self.conf.clone(),
                 self.term,
                 self.role.extract_state(),

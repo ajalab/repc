@@ -9,7 +9,7 @@ use crate::util::{
 use repc::test_util::partitioned::group::{
     PartitionedLocalRepcGroup, PartitionedLocalRepcGroupBuilder,
 };
-use repc_proto::repc_server::RepcServer;
+use repc_proto::repc::repc_server::RepcServer;
 
 fn group_leader_1() -> PartitionedLocalRepcGroup<AdderStateMachine<AdderState>> {
     let conf1 = leader_wannabee();
@@ -49,7 +49,7 @@ async fn send_command_healthy() {
         .await
         .expect("should be ok");
 
-    // Send a command
+    // Send a command (1)
     for &i in &[2, 3] {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
@@ -58,6 +58,16 @@ async fn send_command_healthy() {
         client.add(AddRequest { i: 10 }).await;
 
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
+
+    // Send a command (2)
+    for &i in &[2, 3] {
+        let mut h = handle.raft_handle(1, i).clone();
+        tokio::spawn(async move { h.expect_append_entries_success().await });
+    }
+    let res: Result<tonic::Response<AddResponse>, tonic::Status> =
+        client.add(AddRequest { i: 20 }).await;
+
+    assert_eq!(AddResponse { n: 30 }, res.unwrap().into_inner());
 }
 
 #[tokio::test]

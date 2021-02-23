@@ -2,10 +2,10 @@ use crate::configuration::Configuration;
 use crate::pb::raft::{raft_client::RaftClient, raft_server::RaftServer};
 use crate::raft::node::Node;
 use crate::service::{raft::RaftService, repc::RepcService};
-use crate::state::StateMachine;
+use crate::state::{log::in_memory::InMemoryLog, State, StateMachine};
 use crate::types::NodeId;
 use http::Uri;
-use repc_proto::repc_server::RepcServer;
+use repc_proto::repc::repc_server::RepcServer;
 use std::collections::HashMap;
 use std::error;
 use std::net::SocketAddr;
@@ -33,7 +33,8 @@ where
     pub async fn run(self) -> Result<(), Box<dyn error::Error>> {
         let conf = Arc::new(self.conf);
         let node_conf = conf.group.nodes.get(&self.id).unwrap();
-        let node = Node::new(self.id, self.state_machine).conf(conf.clone());
+        let state = State::new(self.state_machine, InMemoryLog::default());
+        let node = Node::new(self.id, state).conf(conf.clone());
 
         // start raft server
         let raft_addr = SocketAddr::new(node_conf.ip, node_conf.raft_port);

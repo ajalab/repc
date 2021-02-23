@@ -7,10 +7,10 @@ use crate::pb::raft::{
     RequestVoteRequest, RequestVoteResponse,
 };
 use crate::session::RepcClientId;
-use crate::state::{State, StateMachine};
+use crate::state::{log::Log, State, StateMachine};
 use crate::types::{NodeId, Term};
 use bytes::Bytes;
-use repc_proto::types::Sequence;
+use repc_proto::repc::types::Sequence;
 use std::collections::HashMap;
 use std::error::Error;
 use tokio::sync::oneshot;
@@ -19,15 +19,16 @@ use tonic::client::GrpcService;
 use tonic::codegen::StdError;
 use tracing::Instrument;
 
-pub enum Role<S> {
-    Follower { follower: Follower<S> },
-    Candidate { candidate: Candidate<S> },
-    Leader { leader: Leader<S> },
+pub enum Role<S, L> {
+    Follower { follower: Follower<S, L> },
+    Candidate { candidate: Candidate<S, L> },
+    Leader { leader: Leader<S, L> },
 }
 
-impl<S> Role<S>
+impl<S, L> Role<S, L>
 where
     S: StateMachine,
+    L: Log,
 {
     fn to_ident(&self) -> &'static str {
         match self {
@@ -37,7 +38,7 @@ where
         }
     }
 
-    pub fn extract_state(&mut self) -> State<S> {
+    pub fn extract_state(&mut self) -> State<S, L> {
         match self {
             Role::Follower { follower } => follower.extract_state(),
             Role::Candidate { candidate } => candidate.extract_state(),
@@ -99,12 +100,22 @@ where
         &mut self,
         req: AppendEntriesRequest,
     ) -> Result<AppendEntriesResponse, Box<dyn Error + Send>> {
-        match self {
-            Role::Follower { ref mut follower } => {
-                follower.handle_append_entries_request(req).await
+        let span = tracing::trace_span!(
+            target: "role",
+            "handle_append_entries_request",
+            role = self.to_ident(),
+        );
+
+        async {
+            match self {
+                Role::Follower { ref mut follower } => {
+                    follower.handle_append_entries_request(req).await
+                }
+                _ => unimplemented!(),
             }
-            _ => unimplemented!(),
         }
+        .instrument(span)
+        .await
     }
 
     pub async fn handle_election_timeout<T>(

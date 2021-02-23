@@ -1,5 +1,5 @@
 use super::Session;
-use repc_proto::metadata::{METADATA_REPC_CLIENT_ID_KEY, METADATA_REPC_SEQUENCE_KEY};
+use repc_proto::repc::metadata::{METADATA_REPC_CLIENT_ID_KEY, METADATA_REPC_SEQUENCE_KEY};
 use tonic::metadata::{MetadataMap, MetadataValue};
 
 pub trait MetadataEncoder {

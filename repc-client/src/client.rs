@@ -6,7 +6,9 @@ use crate::session::{
 use super::error::RegisterError;
 use bytes::{Bytes, BytesMut};
 use http_body::Body as HttpBody;
-use repc_proto::{repc_client::RepcClient as TonicRepcClient, CommandRequest, RegisterRequest};
+use repc_proto::repc::{
+    repc_client::RepcClient as TonicRepcClient, CommandRequest, RegisterRequest,
+};
 use tonic::{body::Body, IntoRequest, Request, Response, Status};
 
 type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;

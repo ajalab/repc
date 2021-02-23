@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use repc::test_util::partitioned::group::PartitionedLocalRepcGroupBuilder;
-use repc_proto::repc_server::RepcServer;
+use repc_proto::repc::repc_server::RepcServer;
 
 #[tokio::test]
 async fn register() {

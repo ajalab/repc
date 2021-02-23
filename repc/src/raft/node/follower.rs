@@ -4,30 +4,27 @@ use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::raft::message::Message;
-use crate::state::State;
-use crate::state::StateMachine;
+use crate::state::{log::Log, State, StateMachine};
 use crate::types::{NodeId, Term};
 use rand::Rng;
 use std::error;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-pub struct Follower<S> {
-    term: Term,
+pub struct Follower<S, L> {
     deadline_clock: DeadlineClock,
-    voted_for: Option<NodeId>,
-    state: Option<State<S>>,
+    inner: InnerFollower<S, L>,
 }
 
-impl<S> Follower<S>
+impl<S, L> Follower<S, L>
 where
     S: StateMachine,
+    L: Log,
 {
     pub fn spawn(
-        id: NodeId,
         conf: Arc<Configuration>,
         term: Term,
-        state: State<S>,
+        state: State<S, L>,
         mut tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
@@ -41,22 +38,62 @@ where
         });
 
         Follower {
-            term,
-            voted_for: None,
             deadline_clock,
-            state: Some(state),
+            inner: InnerFollower::new(term, state),
         }
-    }
-
-    pub async fn reset_deadline(&mut self) -> Result<(), impl error::Error> {
-        self.deadline_clock.reset_deadline().await
     }
 
     pub async fn handle_request_vote_request(
         &mut self,
         req: RequestVoteRequest,
     ) -> Result<RequestVoteResponse, Box<dyn error::Error + Send>> {
-        // invariant: req.term <= self.term
+        self.inner.handle_request_vote_request(req).await
+    }
+
+    pub async fn handle_append_entries_request(
+        &mut self,
+        req: AppendEntriesRequest,
+    ) -> Result<AppendEntriesResponse, Box<dyn error::Error + Send>> {
+        let res = self.inner.handle_append_entries_request(req).await;
+
+        if let Err(e) = self.deadline_clock.reset_deadline().await {
+            tracing::warn!("failed to reset deadline: {}", e);
+        }
+
+        res
+    }
+
+    pub fn extract_state(&mut self) -> State<S, L> {
+        self.inner.extract_state()
+    }
+}
+
+struct InnerFollower<S, L> {
+    term: Term,
+    voted_for: Option<NodeId>,
+    state: Option<State<S, L>>,
+}
+
+impl<S, L> InnerFollower<S, L>
+where
+    S: StateMachine,
+    L: Log,
+{
+    fn new(term: Term, state: State<S, L>) -> Self {
+        Self {
+            term,
+            voted_for: None,
+            state: Some(state),
+        }
+    }
+
+    async fn handle_request_vote_request(
+        &mut self,
+        req: RequestVoteRequest,
+    ) -> Result<RequestVoteResponse, Box<dyn error::Error + Send>> {
+        // The following invariant holds:
+        //   req.term <= self.term
+        // because the node must have updated its term
 
         let valid_term = req.term == self.term;
         let valid_candidate = match self.voted_for {
@@ -99,12 +136,13 @@ where
         })
     }
 
-    pub async fn handle_append_entries_request(
+    async fn handle_append_entries_request(
         &mut self,
         req: AppendEntriesRequest,
     ) -> Result<AppendEntriesResponse, Box<dyn error::Error + Send>> {
-        // invariant:
+        // The following invariant holds:
         //   req.term <= self.term
+        // because the node must have updated its term
 
         if req.term != self.term {
             tracing::debug!(
@@ -122,6 +160,17 @@ where
         // invariant:
         //   req.term == self.term
 
+        //
+        //                   prev_log_index
+        //                   v
+        //                ---=--------
+        // follower log    s s t t t t
+        //                ---=--------
+        // req entries       | t t u u
+        //                ---=--------
+        // leader log      s s t t u u
+        //                ---=--------
+        // where s, t, u: term, s <= t < u
         let state = self.state.as_mut().unwrap();
         if req.prev_log_index > 0 {
             let prev_log_entry = state.log().get(req.prev_log_index);
@@ -129,7 +178,6 @@ where
 
             if prev_log_term != Some(req.prev_log_term) {
                 tracing::debug!(
-                    target_id = req.leader_id,
                     "refuse AppendEntry request from {}: previous log term of the request ({}) doesn't match the actual term ({})",
                     req.leader_id,
                     req.prev_log_term,
@@ -150,34 +198,34 @@ where
             match term {
                 Some(term) => {
                     if term != e.term {
+                        // Truncate the log entries at index.
+                        //
+                        //                   prev  index                       index
+                        //                   v     v                           v
+                        //                ---------=--                ---------=
+                        // follower log    s s t t t t                 s s t t |
+                        //                ---------=-- => truncate => ---------=--
+                        // req entries       | t t u u                   | t t u u
+                        //                   +-----=--                   +-----=--
+                        //                         ^
+                        //                         i
+                        // where s, t, u: term, s <= t < u
                         state.truncate_log(index);
                         break;
                     }
                 }
                 None => {
+                    // Reached the end of the log.
                     break;
                 }
             }
+            // Entries match.
             i += 1;
         }
         state.append_log_entries(req.entries.into_iter().skip(i as usize));
-        tracing::trace!(
-            target_id = req.leader_id,
-            "append entries replicated from {}",
-            req.leader_id,
-        );
 
         // commit log
-        let last_committed = state.commit(req.last_committed_index);
-        tracing::trace!(
-            target_id = req.leader_id,
-            "commit log at index {}",
-            last_committed,
-        );
-
-        if let Err(e) = self.reset_deadline().await {
-            tracing::warn!("failed to reset deadline: {}", e);
-        };
+        state.commit(req.last_committed_index);
 
         Ok(AppendEntriesResponse {
             term: self.term,
@@ -185,7 +233,140 @@ where
         })
     }
 
-    pub fn extract_state(&mut self) -> State<S> {
+    fn extract_state(&mut self) -> State<S, L> {
         self.state.take().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::pb::raft::LogEntry;
+    use crate::state::{log::in_memory::InMemoryLog, state_machine::test::NoopStateMachine, State};
+
+    fn make_follower(
+        term: Term,
+        log: impl Into<InMemoryLog>,
+    ) -> InnerFollower<NoopStateMachine, InMemoryLog> {
+        let state_machine = NoopStateMachine {};
+        let state = State::new(state_machine, log.into());
+        InnerFollower::new(term, state)
+    }
+
+    fn log_entry(term: Term) -> LogEntry {
+        LogEntry {
+            term,
+            command: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn refuse_request_vote_invalid_term() {
+        let term = 10;
+        let log = vec![];
+        let mut follower = make_follower(term, log);
+
+        let candidate_id = 2;
+        let req = RequestVoteRequest {
+            term: term + 1,
+            candidate_id,
+            last_log_index: 1,
+            last_log_term: 1,
+        };
+        let res = follower
+            .handle_request_vote_request(req)
+            .await
+            .expect("should be ok");
+
+        assert!(!res.vote_granted);
+    }
+
+    #[tokio::test]
+    async fn refuse_request_vote_already_voted_to_another() {
+        let term = 10;
+        let log = vec![];
+        let mut follower = make_follower(term, log);
+
+        let candidate_id = 2;
+        follower.voted_for = Some(candidate_id);
+
+        let req = RequestVoteRequest {
+            term,
+            candidate_id: candidate_id + 1,
+            last_log_index: 1,
+            last_log_term: 1,
+        };
+        let res = follower
+            .handle_request_vote_request(req)
+            .await
+            .expect("should be ok");
+
+        assert!(!res.vote_granted);
+    }
+
+    #[tokio::test]
+    async fn refuse_request_vote_smaller_log_term() {
+        let term = 10;
+        let last_log_index = 1;
+        let log = vec![log_entry(term); last_log_index as usize];
+        let mut follower = make_follower(term, log);
+
+        let candidate_id = 2;
+        let req = RequestVoteRequest {
+            term: term,
+            candidate_id: candidate_id,
+            last_log_index: last_log_index,
+            last_log_term: term - 1,
+        };
+        let res = follower
+            .handle_request_vote_request(req)
+            .await
+            .expect("should be ok");
+
+        assert!(!res.vote_granted);
+    }
+
+    #[tokio::test]
+    async fn refuse_request_vote_smaller_log_index() {
+        let term = 10;
+        let last_log_index = 2;
+        let log = vec![log_entry(term); last_log_index as usize];
+        let mut follower = make_follower(term, log);
+
+        let candidate_id = 2;
+        let req = RequestVoteRequest {
+            term: term,
+            candidate_id: candidate_id,
+            last_log_index: last_log_index - 1,
+            last_log_term: term,
+        };
+        let res = follower
+            .handle_request_vote_request(req)
+            .await
+            .expect("should be ok");
+
+        assert!(!res.vote_granted);
+    }
+
+    #[tokio::test]
+    async fn accept_request_vote() {
+        let term = 10;
+        let last_log_index = 2;
+        let log = vec![log_entry(term); last_log_index as usize];
+        let mut follower = make_follower(term, log);
+
+        let candidate_id = 2;
+        let req = RequestVoteRequest {
+            term: term,
+            candidate_id: candidate_id,
+            last_log_index,
+            last_log_term: term,
+        };
+        let res = follower
+            .handle_request_vote_request(req)
+            .await
+            .expect("should be ok");
+
+        assert!(res.vote_granted);
     }
 }

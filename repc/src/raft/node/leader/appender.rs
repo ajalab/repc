@@ -3,7 +3,7 @@ use super::message::Ready;
 use crate::configuration::LeaderConfiguration;
 use crate::pb::raft::raft_client::RaftClient;
 use crate::pb::raft::AppendEntriesRequest;
-use crate::state::log::LogIndex;
+use crate::state::log::{Log, LogIndex};
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use std::sync::{Arc, Weak};
@@ -23,17 +23,18 @@ pub struct Appender {
 }
 
 impl Appender {
-    pub fn spawn<S, T>(
+    pub fn spawn<S, L, T>(
         id: NodeId,
         term: Term,
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         commit_manager_notifier: CommitManagerNotifier,
-        state: Weak<RwLock<State<S>>>,
+        state: Weak<RwLock<State<S, L>>>,
         client: RaftClient<T>,
     ) -> Self
     where
         S: StateMachine + Send + Sync + 'static,
+        L: Log + Send + Sync + 'static,
         T: GrpcService<BoxBody> + Send + Sync + 'static,
         T::Future: Send,
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
@@ -63,7 +64,7 @@ impl Appender {
     }
 }
 
-struct AppenderProcess<S, T> {
+struct AppenderProcess<S, L, T> {
     id: NodeId,
     term: Term,
     conf: Arc<LeaderConfiguration>,
@@ -71,16 +72,17 @@ struct AppenderProcess<S, T> {
     client: RaftClient<T>,
     rx: mpsc::Receiver<Ready>,
     commit_manager_notifier: CommitManagerNotifier,
-    state: Weak<RwLock<State<S>>>,
+    state: Weak<RwLock<State<S, L>>>,
 
     wait_notification: bool,
     next_index: LogIndex,
     match_index: LogIndex,
 }
 
-impl<S, T> AppenderProcess<S, T>
+impl<S, L, T> AppenderProcess<S, L, T>
 where
     S: StateMachine,
+    L: Log,
     T: GrpcService<BoxBody>,
     T::ResponseBody: Send + 'static,
     <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
@@ -93,7 +95,7 @@ where
         client: RaftClient<T>,
         rx: mpsc::Receiver<Ready>,
         commit_manager_notifier: CommitManagerNotifier,
-        state: Weak<RwLock<State<S>>>,
+        state: Weak<RwLock<State<S, L>>>,
     ) -> Self {
         AppenderProcess {
             id,
@@ -138,9 +140,10 @@ where
 
         let prev_log_index = self.next_index - 1;
         let prev_log_term = log.get(prev_log_index).map(|e| e.term).unwrap_or(0);
-        let last_committed_index = log.last_committed();
+        let last_committed_index = state.last_committed();
         let entries = log
-            .iter_at(self.next_index)
+            .get_from(self.next_index)
+            .iter()
             .map(Clone::clone)
             .collect::<Vec<_>>();
         let n_entries = entries.len();
@@ -177,12 +180,17 @@ where
                 let res = res.into_inner();
                 if res.success {
                     self.match_index = prev_log_index + (n_entries as LogIndex);
-                    tracing::trace!(
-                            "AppendRequest succeeded in appending {} entries. Updating match_index from {} to {}",
-                            n_entries,
-                            prev_log_index,
-                            self.match_index,
-                        );
+                    if n_entries > 0 {
+                        tracing::trace!(
+                                "AppendRequest succeeded in appending {} entries. Updated match_index from {} to {}",
+                                n_entries,
+                                prev_log_index,
+                                self.match_index,
+                            );
+                    } else {
+                        tracing::trace!("AppendRequest succeeded in sending a heartbeat");
+                    }
+                    self.next_index = self.match_index + 1;
                     self.wait_notification = true;
                     (true, true)
                 } else {
@@ -223,8 +231,8 @@ where
             loop {
                 let span = tracing::trace_span!(
                     target: "leader::appender", "append",
-                    next_index = self.next_index,
                     match_index = self.match_index,
+                    next_index = self.next_index,
                 );
                 self.append().instrument(span).await;
             }

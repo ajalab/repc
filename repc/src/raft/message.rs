@@ -6,7 +6,7 @@ use crate::pb::raft::{
 use crate::session::RepcClientId;
 use crate::types::NodeId;
 use bytes::Bytes;
-use repc_proto::types::Sequence;
+use repc_proto::repc::types::Sequence;
 use std::error;
 use tokio::sync::{mpsc, oneshot};
 
