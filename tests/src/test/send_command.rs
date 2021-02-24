@@ -2,34 +2,19 @@ use crate::app::adder::{
     pb::{adder_client::AdderClient, adder_server::AdderStateMachine, AddRequest, AddResponse},
     AdderState,
 };
-use crate::util::{
-    configuration::{follower_wannabee, leader_wannabee},
-    init,
-};
-use repc::test_util::partitioned::group::{
-    PartitionedLocalRepcGroup, PartitionedLocalRepcGroupBuilder,
-};
+use crate::util::{init, partitioned_group};
+use repc::state::log::in_memory::InMemoryLog;
+use repc::test_util::partitioned::group::PartitionedLocalRepcGroup;
 use repc_proto::repc::repc_server::RepcServer;
-
-fn group_leader_1() -> PartitionedLocalRepcGroup<AdderStateMachine<AdderState>> {
-    let conf1 = leader_wannabee();
-    let conf2 = follower_wannabee();
-    let conf3 = follower_wannabee();
-
-    let state_machines = (0..3)
-        .map(|_| AdderStateMachine::new(AdderState::default()))
-        .collect::<Vec<_>>();
-    PartitionedLocalRepcGroupBuilder::new()
-        .confs(vec![conf1, conf2, conf3])
-        .state_machines(state_machines)
-        .build()
-}
 
 #[tokio::test]
 async fn send_command_healthy() {
     init();
-    let group = group_leader_1();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
     let mut handle = group.spawn();
+
+    let _ = handle.force_election_timeout(1).await;
 
     // Node 1 collects votes and becomes a leader
     handle.expect_request_vote_success(1, 2).await;
@@ -44,7 +29,7 @@ async fn send_command_healthy() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let service = handle.service(1).clone();
+    let service = handle.repc_service(1).clone();
     let mut client = AdderClient::register(RepcServer::new(service))
         .await
         .expect("should be ok");
@@ -73,8 +58,11 @@ async fn send_command_healthy() {
 #[tokio::test]
 async fn send_command_failure_noncritical() {
     init();
-    let group = group_leader_1();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
     let mut handle = group.spawn();
+
+    let _ = handle.force_election_timeout(1).await;
 
     // Node 1 collects votes and becomes a leader
     handle.expect_request_vote_success(1, 2).await;
@@ -89,7 +77,7 @@ async fn send_command_failure_noncritical() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let service = handle.service(1).clone();
+    let service = handle.repc_service(1).clone();
     let mut client = AdderClient::register(RepcServer::new(service))
         .await
         .expect("should be ok");
@@ -109,8 +97,11 @@ async fn send_command_failure_noncritical() {
 #[tokio::test]
 async fn send_command_failure_critical() {
     init();
-    let group = group_leader_1();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
     let mut handle = group.spawn();
+
+    let _ = handle.force_election_timeout(1).await;
 
     // Node 1 collects votes and becomes a leader
     handle.expect_request_vote_success(1, 2).await;
@@ -125,7 +116,7 @@ async fn send_command_failure_critical() {
         let mut h = handle.raft_handle(1, i).clone();
         tokio::spawn(async move { h.expect_append_entries_success().await });
     }
-    let service = handle.service(1).clone();
+    let service = handle.repc_service(1).clone();
     let mut client = AdderClient::register(RepcServer::new(service))
         .await
         .expect("should be ok");

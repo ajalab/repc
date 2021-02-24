@@ -1,6 +1,6 @@
 use super::{Log, LogIndex};
 use crate::pb::raft::LogEntry;
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct InMemoryLog {
     entries: Vec<LogEntry>,
 }

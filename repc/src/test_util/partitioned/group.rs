@@ -1,3 +1,7 @@
+use repc_proto::admin::{
+    admin_server::Admin, ForceElectionTimeoutRequest, ForceElectionTimeoutResponse,
+};
+
 use super::service::raft::{error::HandleError, partition, Handle, ResponseHandle};
 use crate::configuration::Configuration;
 use crate::pb::raft::{
@@ -6,54 +10,51 @@ use crate::pb::raft::{
     AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
 };
 use crate::raft::node::Node;
-use crate::service::raft::RaftService;
-use crate::service::repc::RepcService;
-use crate::state::{log::in_memory::InMemoryLog, State, StateMachine};
+use crate::service::{admin::AdminService, raft::RaftService, repc::RepcService};
+use crate::state::{log::Log, State, StateMachine};
 use crate::types::NodeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct PartitionedLocalRepcGroupBuilder<S> {
+pub struct PartitionedLocalRepcGroupBuilder<S, L> {
     confs: Vec<Configuration>,
-    state_machines: Vec<S>,
+    states: Vec<State<S, L>>,
 }
 
-impl<S> PartitionedLocalRepcGroupBuilder<S> {
+impl<S, L> PartitionedLocalRepcGroupBuilder<S, L> {
     pub fn new() -> Self {
         Self {
             confs: vec![],
-            state_machines: vec![],
+            states: vec![],
         }
     }
 
-    pub fn state_machines(self, state_machines: Vec<S>) -> Self {
-        Self {
-            state_machines,
-            ..self
-        }
+    pub fn states(self, states: Vec<State<S, L>>) -> Self {
+        Self { states, ..self }
     }
 
     pub fn confs(self, confs: Vec<Configuration>) -> Self {
         Self { confs, ..self }
     }
 
-    pub fn build(self) -> PartitionedLocalRepcGroup<S> {
-        debug_assert_eq!(self.confs.len(), self.state_machines.len());
+    pub fn build(self) -> PartitionedLocalRepcGroup<S, L> {
+        debug_assert_eq!(self.confs.len(), self.states.len());
         PartitionedLocalRepcGroup {
             confs: self.confs,
-            state_machines: self.state_machines,
+            states: self.states,
         }
     }
 }
 
-pub struct PartitionedLocalRepcGroup<S> {
+pub struct PartitionedLocalRepcGroup<S, L> {
     confs: Vec<Configuration>,
-    state_machines: Vec<S>,
+    states: Vec<State<S, L>>,
 }
 
-impl<S> PartitionedLocalRepcGroup<S>
+impl<S, L> PartitionedLocalRepcGroup<S, L>
 where
     S: StateMachine + Send + Sync + 'static,
+    L: Log + Send + Sync + 'static,
 {
     pub fn spawn(self) -> PartitionedLocalRepcGroupHandle<RaftService> {
         const BUFFER: usize = 10;
@@ -61,11 +62,10 @@ where
         let nodes: HashMap<NodeId, _> = self
             .confs
             .into_iter()
-            .zip(self.state_machines.into_iter())
+            .zip(self.states.into_iter())
             .enumerate()
-            .map(|(i, (conf, state_machine))| {
+            .map(|(i, (conf, state))| {
                 let id = i as NodeId + 1;
-                let state = State::new(state_machine, InMemoryLog::default());
                 let node = Node::new(id, state).conf(Arc::new(conf));
                 (id, node)
             })
@@ -100,6 +100,11 @@ where
             .map(|(&i, node)| (i, RepcService::new(node.get_tx())))
             .collect();
 
+        let admin_services: HashMap<NodeId, _> = nodes
+            .iter()
+            .map(|(&i, node)| (i, AdminService::new(node.get_tx())))
+            .collect();
+
         for (id, node) in nodes.into_iter() {
             let clients = raft_clients.remove(&id).unwrap();
             tokio::spawn(node.clients(clients).run());
@@ -108,6 +113,7 @@ where
         PartitionedLocalRepcGroupHandle {
             handles: raft_client_handles,
             repc_services,
+            admin_services,
         }
     }
 }
@@ -115,6 +121,7 @@ where
 pub struct PartitionedLocalRepcGroupHandle<R> {
     handles: HashMap<NodeId, HashMap<NodeId, Handle<R>>>,
     repc_services: HashMap<NodeId, RepcService>,
+    admin_services: HashMap<NodeId, AdminService>,
 }
 
 impl<R> PartitionedLocalRepcGroupHandle<R>
@@ -129,8 +136,23 @@ where
         self.handles.get_mut(&i).unwrap().get_mut(&j).unwrap()
     }
 
-    pub fn service(&self, i: NodeId) -> &RepcService {
+    pub fn repc_service(&self, i: NodeId) -> &RepcService {
         self.repc_services.get(&i).unwrap()
+    }
+
+    pub fn admin_service(&self, i: NodeId) -> &AdminService {
+        self.admin_services.get(&i).unwrap()
+    }
+
+    pub async fn force_election_timeout(
+        &mut self,
+        i: NodeId,
+    ) -> Result<tonic::Response<ForceElectionTimeoutResponse>, tonic::Status> {
+        self.admin_services
+            .get_mut(&i)
+            .unwrap()
+            .force_election_timeout(tonic::Request::new(ForceElectionTimeoutRequest {}))
+            .await
     }
 
     pub async fn pass_request_vote_request(

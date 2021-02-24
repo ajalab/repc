@@ -1,0 +1,10 @@
+syntax = "proto3";
+package admin;
+
+service Admin {
+  rpc ForceElectionTimeout(ForceElectionTimeoutRequest)
+      returns (ForceElectionTimeoutResponse);
+}
+
+message ForceElectionTimeoutRequest {}
+message ForceElectionTimeoutResponse {}

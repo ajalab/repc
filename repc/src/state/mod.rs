@@ -16,7 +16,7 @@ pub struct State<S, L> {
     last_committed: LogIndex,
 }
 
-impl<S: StateMachine, L: Log> State<S, L> {
+impl<S, L> State<S, L> {
     pub fn new(state_machine: S, log: L) -> Self {
         State {
             state_machine,
@@ -25,13 +25,8 @@ impl<S: StateMachine, L: Log> State<S, L> {
             last_committed: LogIndex::default(),
         }
     }
-
     pub fn log(&self) -> &L {
         &self.log
-    }
-
-    pub fn last_index(&self) -> LogIndex {
-        self.log.last_index()
     }
 
     pub fn last_committed(&self) -> LogIndex {
@@ -40,6 +35,42 @@ impl<S: StateMachine, L: Log> State<S, L> {
 
     pub fn last_applied(&self) -> LogIndex {
         self.last_applied
+    }
+}
+
+impl<S, L> Clone for State<S, L>
+where
+    S: Clone,
+    L: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            state_machine: self.state_machine.clone(),
+            log: self.log.clone(),
+            last_applied: self.last_applied,
+            last_committed: self.last_committed,
+        }
+    }
+}
+
+impl<S, L> Default for State<S, L>
+where
+    S: Default,
+    L: Default,
+{
+    fn default() -> Self {
+        Self {
+            state_machine: S::default(),
+            log: L::default(),
+            last_applied: LogIndex::default(),
+            last_committed: LogIndex::default(),
+        }
+    }
+}
+
+impl<S: StateMachine, L: Log> State<S, L> {
+    pub fn last_index(&self) -> LogIndex {
+        self.log.last_index()
     }
 
     pub fn append_log_entries(&mut self, entries: impl Iterator<Item = LogEntry>) {

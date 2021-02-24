@@ -1,7 +1,6 @@
 use crate::pb::raft::LogEntry;
 use crate::types::Term;
 
-pub mod fixed;
 pub mod in_memory;
 
 pub type LogIndex = u64;
