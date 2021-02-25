@@ -128,7 +128,7 @@ impl<R> PartitionedLocalRepcGroupHandle<R>
 where
     R: Raft,
 {
-    pub fn raft_handle(&mut self, i: NodeId, j: NodeId) -> &Handle<R> {
+    pub fn raft_handle(&self, i: NodeId, j: NodeId) -> &Handle<R> {
         self.handles.get(&i).unwrap().get(&j).unwrap()
     }
 

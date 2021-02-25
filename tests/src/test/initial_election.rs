@@ -4,7 +4,7 @@ use repc::{
     state::log::in_memory::InMemoryLog,
     test_util::{
         partitioned::group::PartitionedLocalRepcGroup,
-        pb::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse},
+        pb::raft::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse},
     },
 };
 

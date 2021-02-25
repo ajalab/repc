@@ -3,16 +3,19 @@ use crate::app::adder::{
     AdderState,
 };
 use crate::util::{init, partitioned_group};
-use repc::state::log::in_memory::InMemoryLog;
-use repc::test_util::partitioned::group::PartitionedLocalRepcGroup;
+use repc::{
+    state::log::in_memory::InMemoryLog,
+    test_util::{
+        partitioned::group::{PartitionedLocalRepcGroup, PartitionedLocalRepcGroupHandle},
+        pb::raft::raft_server::Raft,
+        service::repc::RepcService,
+    },
+};
 use repc_proto::repc::repc_server::RepcServer;
 
-#[tokio::test]
-async fn send_command_healthy() {
-    init();
-    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
-        partitioned_group(3);
-    let mut handle = group.spawn();
+async fn make_1_leader<R: Raft + Clone>(
+    handle: &mut PartitionedLocalRepcGroupHandle<R>,
+) -> AdderClient<RepcServer<RepcService>> {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
@@ -32,13 +35,25 @@ async fn send_command_healthy() {
 
     // Register
     let service = handle.repc_service(1).clone();
-    let mut client = futures::join!(
+    futures::join!(
         AdderClient::register(RepcServer::new(service)),
         h12.expect_append_entries_success(),
         h13.expect_append_entries_success(),
     )
     .0
-    .expect("should be ok");
+    .expect("should be ok")
+}
+
+#[tokio::test]
+async fn send_command_healthy() {
+    init();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
+    let mut handle = group.spawn();
+    let mut h12 = handle.raft_handle(1, 2).clone();
+    let mut h13 = handle.raft_handle(1, 3).clone();
+
+    let mut client = make_1_leader(&mut handle).await;
 
     // Send a command (1)
     let res = futures::join!(
@@ -68,29 +83,7 @@ async fn send_command_failure_noncritical() {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
-    let _ = handle.force_election_timeout(1).await;
-
-    // Node 1 collects votes and becomes a leader
-    futures::join!(
-        h12.expect_request_vote_success(),
-        h13.expect_request_vote_success(),
-    );
-
-    // Node 1 sends initial heartbeats to others
-    futures::join!(
-        h12.expect_append_entries_success(),
-        h13.expect_append_entries_success(),
-    );
-
-    // Register
-    let service = handle.repc_service(1).clone();
-    let mut client = futures::join!(
-        AdderClient::register(RepcServer::new(service)),
-        h12.expect_append_entries_success(),
-        h13.expect_append_entries_success(),
-    )
-    .0
-    .expect("should be ok");
+    let mut client = make_1_leader(&mut handle).await;
 
     // Only a few nodes (not majority) fail
     let res = futures::join!(
@@ -111,29 +104,7 @@ async fn send_command_failure_critical() {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
-    let _ = handle.force_election_timeout(1).await;
-
-    // Node 1 collects votes and becomes a leader
-    futures::join!(
-        h12.expect_request_vote_success(),
-        h13.expect_request_vote_success(),
-    );
-
-    // Node 1 sends initial heartbeats to others
-    futures::join!(
-        h12.expect_append_entries_success(),
-        h13.expect_append_entries_success(),
-    );
-
-    // Register
-    let service = handle.repc_service(1).clone();
-    let mut client = futures::join!(
-        AdderClient::register(RepcServer::new(service)),
-        h12.expect_append_entries_success(),
-        h13.expect_append_entries_success(),
-    )
-    .0
-    .expect("should be ok");
+    let mut client = make_1_leader(&mut handle).await;
 
     // Majority of nodes fail
     let res = futures::join!(
