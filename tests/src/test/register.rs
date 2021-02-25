@@ -16,6 +16,8 @@ async fn register() {
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
     let mut handle = group.spawn();
+    let mut h12 = handle.raft_handle(1, 2).clone();
+    let mut h13 = handle.raft_handle(1, 3).clone();
 
     let _ = handle.force_election_timeout(1).await;
 
@@ -28,12 +30,12 @@ async fn register() {
     handle.expect_append_entries_success(1, 3).await;
 
     // Register
-    for &i in &[2, 3] {
-        let mut h = handle.raft_handle(1, i).clone();
-        tokio::spawn(async move { h.expect_append_entries_success().await });
-    }
     let service = handle.repc_service(1).clone();
-    AdderClient::register(RepcServer::new(service))
-        .await
-        .expect("should be ok");
+    futures::join!(
+        AdderClient::register(RepcServer::new(service)),
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    )
+    .0
+    .expect("should be ok");
 }

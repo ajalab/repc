@@ -825,6 +825,7 @@ name = "tests"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "futures",
  "prost",
  "repc",
  "repc-build",
