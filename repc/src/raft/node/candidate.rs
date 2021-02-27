@@ -41,8 +41,7 @@ where
         let timeout_millis: u64 = conf.candidate.election_timeout_millis
             + rng.gen_range(0..=(conf.candidate.election_timeout_jitter_millis));
 
-        let mut tx_dc = tx.clone();
-
+        let tx_dc = tx.clone();
         let deadline_clock = DeadlineClock::spawn(timeout_millis, async move {
             if let Err(_) = tx_dc.send(Message::ElectionTimeout).await {
                 tracing::warn!(
@@ -119,7 +118,7 @@ where
         let last_log_index = log.last_index();
         for (&id, client) in clients.iter() {
             let mut client = client.clone();
-            let mut tx = self.tx.clone();
+            let tx = self.tx.clone();
             let term = self.term;
             let candidate_id = self.id;
             let span = tracing::debug_span!(target: "candidate", "send_request_vote_request", target_id = id);

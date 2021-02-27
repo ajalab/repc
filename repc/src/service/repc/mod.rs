@@ -115,8 +115,7 @@ impl RepcService {
             tx: callback_tx,
         };
 
-        let mut tx = self.tx.clone();
-        if tx.send(command).await.is_ok() {
+        if self.tx.send(command).await.is_ok() {
             match callback_rx.await {
                 Ok(Ok(response)) => Ok(response),
                 Ok(Err(e)) => Err(Status::from(e)),

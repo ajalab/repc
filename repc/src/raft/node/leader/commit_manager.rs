@@ -1,13 +1,21 @@
-use super::error::CommitError;
-use super::message::{Applied, Replicated};
-use crate::raft::node::error::CommandError;
-use crate::state::log::{Log, LogIndex};
-use crate::state::{State, StateMachine};
-use crate::types::{NodeId, Term};
+use super::{
+    error::CommitError,
+    message::{Applied, Replicated},
+};
+use crate::{
+    raft::node::error::CommandError,
+    state::{
+        log::{Log, LogIndex},
+        State, StateMachine,
+    },
+    types::{NodeId, Term},
+};
 use bytes::Bytes;
 use futures::{future, StreamExt};
-use std::collections::{HashMap, HashSet};
-use std::sync::Weak;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Weak,
+};
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::Instrument;

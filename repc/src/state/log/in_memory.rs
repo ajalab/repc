@@ -54,7 +54,7 @@ impl Log for InMemoryLog {
 
 impl InMemoryLog {
     // end is inclusive
-    fn get_range(&self, start: LogIndex, end: LogIndex) -> &[LogEntry] {
+    fn _get_range(&self, start: LogIndex, end: LogIndex) -> &[LogEntry] {
         &self.entries[(start as usize - 1)..(end as usize)]
     }
 }

@@ -25,7 +25,7 @@ where
         conf: Arc<Configuration>,
         term: Term,
         state: State<S, L>,
-        mut tx: mpsc::Sender<Message>,
+        tx: mpsc::Sender<Message>,
     ) -> Self {
         let mut rng = rand::thread_rng();
         let timeout_millis: u64 = conf.follower.election_timeout_millis

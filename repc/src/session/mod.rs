@@ -86,5 +86,5 @@ impl Sessions {
         }
     }
 
-    pub async fn update(&self, client_id: RepcClientId, sequence: Sequence) {}
+    pub async fn _update(&self, _client_id: RepcClientId, _sequence: Sequence) {}
 }

@@ -27,9 +27,8 @@ impl Raft for PartitionedRaftService {
         request: Request<RequestVoteRequest>,
     ) -> Result<Response<RequestVoteResponse>, Status> {
         let (tx, rx) = oneshot::channel();
-        let mut tx_handle = self.tx.clone();
         let request = request.map(RaftRequest::RequestVote);
-        tx_handle
+        self.tx
             .send((request, tx))
             .await
             .map_err(|e| Status::internal(format!("handle dropped: {}", e)))?;
@@ -51,9 +50,8 @@ impl Raft for PartitionedRaftService {
         request: Request<AppendEntriesRequest>,
     ) -> Result<Response<AppendEntriesResponse>, Status> {
         let (tx, rx) = oneshot::channel();
-        let mut tx_handle = self.tx.clone();
         let request = request.map(RaftRequest::AppendEntries);
-        tx_handle
+        self.tx
             .send((request, tx))
             .await
             .map_err(|e| Status::internal(format!("handle dropped: {}", e)))?;

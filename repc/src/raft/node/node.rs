@@ -173,7 +173,7 @@ where
     async fn handle_request_vote_request(
         &mut self,
         req: RequestVoteRequest,
-        mut tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
+        tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
     ) {
         let span = tracing::debug_span!(
             target: "node",
@@ -225,7 +225,7 @@ where
     async fn handle_append_entries_request(
         &mut self,
         req: AppendEntriesRequest,
-        mut tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
+        tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
     ) {
         let span = tracing::trace_span!(
             target: "node",
