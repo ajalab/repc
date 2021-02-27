@@ -10,14 +10,14 @@ edition = "2018"
 repc = { path = "../repc" }
 repc-client = { path = "../repc-client" }
 repc-proto = { path = "../repc-proto" }
-tonic = "0.3"
-prost = "0.6"
-bytes = "0.5"
+tonic = "0.4"
+prost = "0.7"
+bytes = "1.0"
 
 [build-dependencies]
 repc-build = { path = "../repc-build" }
 
 [dev-dependencies]
 tracing-subscriber = "0.2"
-tokio = { version = "0.2", features = ["macros", "time", "sync", "stream", "test-util"] }
+tokio = { version = "1.2", features = ["rt-multi-thread", "macros", "time", "sync", "test-util"] }
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }

@@ -39,7 +39,7 @@ where
     ) -> Self {
         let mut rng = rand::thread_rng();
         let timeout_millis: u64 = conf.candidate.election_timeout_millis
-            + rng.gen_range(0, conf.candidate.election_timeout_jitter_millis + 1);
+            + rng.gen_range(0..=(conf.candidate.election_timeout_jitter_millis));
 
         let mut tx_dc = tx.clone();
 

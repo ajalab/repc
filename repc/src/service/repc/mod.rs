@@ -11,6 +11,7 @@ use repc_proto::repc::{
     CommandResponse, RegisterRequest, RegisterResponse,
 };
 use tokio::sync::{mpsc, oneshot};
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::Instrument;
 
@@ -89,7 +90,7 @@ impl Repc for RepcService {
         Err(Status::internal("unimplemented"))
     }
 
-    type ServerStreamCommandStream = mpsc::Receiver<Result<CommandResponse, Status>>;
+    type ServerStreamCommandStream = ReceiverStream<Result<CommandResponse, Status>>;
 
     async fn server_stream_command(
         &self,

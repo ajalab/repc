@@ -6,6 +6,7 @@ use crate::pb::raft::AppendEntriesRequest;
 use crate::state::log::{Log, LogIndex};
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
+use futures::FutureExt;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::{
@@ -125,7 +126,7 @@ where
                 return;
             }
         } else {
-            let _ = self.rx.try_recv();
+            let _ = self.rx.recv().now_or_never();
         }
 
         let state = match self.state.upgrade() {

@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 repc-proto = { path = "../repc-proto" }
-tonic = "0.3"
-bytes = "0.5"
-prost = "0.6"
-http-body = "0.3"
+tonic = "0.4"
+bytes = "1.0"
+prost = "0.7"
+http-body = "0.4"

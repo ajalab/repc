@@ -9,6 +9,7 @@ use futures::{future, StreamExt};
 use std::collections::{HashMap, HashSet};
 use std::sync::Weak;
 use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::Instrument;
 
 pub struct CommitManager {
@@ -59,7 +60,7 @@ impl CommitManagerSubscription {
         self,
         index: LogIndex,
     ) -> Result<tonic::Response<Bytes>, CommandError> {
-        let stream = self.rx.into_stream();
+        let stream = BroadcastStream::new(self.rx);
         tokio::pin!(stream);
 
         stream
@@ -72,8 +73,7 @@ impl CommitManagerSubscription {
                         Some(result.map_err(CommandError::StateMachineError))
                     }
                     Ok(Err(e)) => Some(Err(CommandError::CommitError(e))),
-                    Err(broadcast::RecvError::Closed) => Some(Err(CommandError::NotLeader)),
-                    Err(broadcast::RecvError::Lagged(n)) => {
+                    Err(BroadcastStreamRecvError::Lagged(n)) => {
                         tracing::warn!("commit notification is lagging: {}", n);
                         None
                     }

@@ -29,7 +29,7 @@ where
     ) -> Self {
         let mut rng = rand::thread_rng();
         let timeout_millis: u64 = conf.follower.election_timeout_millis
-            + rng.gen_range(0, conf.follower.election_timeout_jitter_millis + 1);
+            + rng.gen_range(0..=conf.follower.election_timeout_jitter_millis);
 
         let deadline_clock = DeadlineClock::spawn(timeout_millis, async move {
             if let Err(_) = tx.send(Message::ElectionTimeout).await {

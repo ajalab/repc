@@ -8,19 +8,19 @@ edition = "2018"
 
 [dependencies]
 repc-proto = { path = "../repc-proto" }
-tonic = "0.3"
-bytes = "0.5"
-prost = "0.6"
+tonic = "0.4"
+bytes = "1.0"
+prost = "0.7"
 http = "0.2"
-http-body = "0.3"
-tokio = { version = "0.2", features = ["macros", "time", "sync", "stream"] }
-tower-service = { version = "0.3" }
-tower = { version = "0.3" }
+http-body = "0.4"
+tokio = { version = "1.2", features = ["macros", "rt-multi-thread", "time", "sync"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-service = "0.3"
+tower = "0.4"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
-tracing = "0.1.23"
+tracing = "0.1"
 tracing-futures = "0.2"
-rand = "0.7"
+rand = "0.8"
 
 [build-dependencies]
-tonic-build = "0.3"
-tokio = { version = "0.2", features = ["macros", "time", "sync", "stream", "test-util"] }
+tonic-build = "0.4"

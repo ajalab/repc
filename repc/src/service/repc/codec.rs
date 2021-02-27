@@ -9,7 +9,8 @@ impl Decoder for IdentDecoder {
     type Item = Bytes;
     type Error = Status;
     fn decode(&mut self, src: &mut DecodeBuf<'_>) -> Result<Option<Self::Item>, Self::Error> {
-        Ok(Some(src.to_bytes()))
+        let len = src.remaining();
+        Ok(Some(src.copy_to_bytes(len)))
     }
 }
 
