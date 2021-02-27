@@ -8,8 +8,6 @@ pub fn generate(service: &Service, proto_path: &str) -> TokenStream {
     let trait_def = generate_trait_def(service, proto_path);
     let state_machine_def = generate_state_machine_def(service);
     let state_machine_impl = generate_state_machine_impl(service);
-    let state_machine_clone_impl = generate_state_machine_clone_impl(service);
-    let state_machine_default_impl = generate_state_machine_default_impl(service);
     let state_machine_trait_impl = generate_state_machine_trait_impl(service);
 
     quote! {
@@ -19,10 +17,6 @@ pub fn generate(service: &Service, proto_path: &str) -> TokenStream {
             #state_machine_def
 
             #state_machine_impl
-
-            #state_machine_clone_impl
-
-            #state_machine_default_impl
 
             #state_machine_trait_impl
         }
@@ -67,6 +61,7 @@ fn generate_state_machine_def(service: &Service) -> TokenStream {
     let name = resolve_state_machine_name(service);
 
     quote! {
+        #[derive(Clone, Default)]
         pub struct #name<T> {
             inner: T
         }
@@ -80,30 +75,6 @@ fn generate_state_machine_impl(service: &Service) -> TokenStream {
         impl<T> #name<T> {
             pub fn new(inner: T) -> Self {
                 Self { inner }
-            }
-        }
-    }
-}
-
-fn generate_state_machine_clone_impl(service: &Service) -> TokenStream {
-    let name = resolve_state_machine_name(service);
-
-    quote! {
-        impl<T: Clone> Clone for #name<T> {
-            fn clone(&self) -> Self {
-                Self { inner: self.inner.clone() }
-            }
-        }
-    }
-}
-
-fn generate_state_machine_default_impl(service: &Service) -> TokenStream {
-    let name = resolve_state_machine_name(service);
-
-    quote! {
-        impl<T: Default> Default for #name<T> {
-            fn default() -> Self {
-                Self { inner: T::default() }
             }
         }
     }

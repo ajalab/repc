@@ -9,6 +9,7 @@ use bytes::Bytes;
 use error::StateMachineError;
 use log::{Log, LogIndex};
 
+#[derive(Clone, Default)]
 pub struct State<S, L> {
     state_machine: S,
     log: L,
@@ -35,36 +36,6 @@ impl<S, L> State<S, L> {
 
     pub fn last_applied(&self) -> LogIndex {
         self.last_applied
-    }
-}
-
-impl<S, L> Clone for State<S, L>
-where
-    S: Clone,
-    L: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            state_machine: self.state_machine.clone(),
-            log: self.log.clone(),
-            last_applied: self.last_applied,
-            last_committed: self.last_committed,
-        }
-    }
-}
-
-impl<S, L> Default for State<S, L>
-where
-    S: Default,
-    L: Default,
-{
-    fn default() -> Self {
-        Self {
-            state_machine: S::default(),
-            log: L::default(),
-            last_applied: LogIndex::default(),
-            last_committed: LogIndex::default(),
-        }
     }
 }
 
