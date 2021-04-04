@@ -5,6 +5,5 @@ members = [
     "repc-build",
     "repc-client",
     "repc-proto",
-    "tests",
-    "examples"
+    "tests"
 ]
