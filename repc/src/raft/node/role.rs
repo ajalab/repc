@@ -1,22 +1,18 @@
-use super::candidate::Candidate;
-use super::error::CommandError;
-use super::follower::Follower;
-use super::leader::Leader;
-use crate::pb::raft::{
-    log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
-    RequestVoteRequest, RequestVoteResponse,
+use super::{candidate::Candidate, error::CommandError, follower::Follower, leader::Leader};
+use crate::{
+    pb::raft::{
+        log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
+        RequestVoteRequest, RequestVoteResponse,
+    },
+    session::RepcClientId,
+    state::{log::Log, State, StateMachine},
+    types::{NodeId, Term},
 };
-use crate::session::RepcClientId;
-use crate::state::{log::Log, State, StateMachine};
-use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
-use std::collections::HashMap;
-use std::error::Error;
+use std::{collections::HashMap, error::Error};
 use tokio::sync::oneshot;
-use tonic::body::BoxBody;
-use tonic::client::GrpcService;
-use tonic::codegen::StdError;
+use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::Instrument;
 
 pub enum Role<S, L> {

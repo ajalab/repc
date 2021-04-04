@@ -1,15 +1,18 @@
 pub mod error;
 mod message;
 
-use self::error::{ConversionError, HandleError};
-use self::message::{RaftRequest, RaftResponse, ResponseResult};
-use crate::pb::raft::raft_server::Raft;
-use crate::pb::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+use self::{
+    error::{ConversionError, HandleError},
+    message::{RaftRequest, RaftResponse, ResponseResult},
 };
-use crate::util;
-use std::convert::TryFrom;
-use std::sync::Arc;
+use crate::{
+    pb::raft::{
+        raft_server::Raft, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+        RequestVoteResponse,
+    },
+    util,
+};
+use std::{convert::TryFrom, std::sync::Arc};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tonic::{Request, Response, Status};
 

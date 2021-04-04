@@ -1,8 +1,8 @@
-use crate::raft::node::leader::error::CommitError;
-use crate::session::error::SessionError;
-use crate::state::error::StateMachineError;
-use std::error;
-use std::fmt;
+use crate::{
+    raft::node::leader::error::CommitError, session::error::SessionError,
+    state::error::StateMachineError,
+};
+use std::{error, fmt};
 use tonic::Status;
 
 #[derive(Debug, Clone)]

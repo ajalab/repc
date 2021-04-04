@@ -1,7 +1,5 @@
 use crate::types::NodeId;
-use std::collections::HashSet;
-use std::error;
-use std::fmt;
+use std::{collections::HashSet, error, fmt};
 use tonic::Status;
 
 #[derive(Debug, Clone)]

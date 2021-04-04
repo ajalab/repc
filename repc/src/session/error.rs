@@ -1,5 +1,4 @@
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 use tonic::Status;
 
 use super::Sequence;

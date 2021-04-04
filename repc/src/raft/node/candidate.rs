@@ -1,17 +1,18 @@
 use super::deadline_clock::DeadlineClock;
-use crate::configuration::Configuration;
-use crate::pb::raft::raft_client::RaftClient;
-use crate::pb::raft::{RequestVoteRequest, RequestVoteResponse};
-use crate::raft::message::Message;
-use crate::state::{log::Log, State, StateMachine};
-use crate::types::{NodeId, Term};
+use crate::{
+    configuration::Configuration,
+    pb::raft::{raft_client::RaftClient, RequestVoteRequest, RequestVoteResponse},
+    raft::message::Message,
+    state::{log::Log, State, StateMachine},
+    types::{NodeId, Term},
+};
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::sync::mpsc;
-use tonic::body::BoxBody;
-use tonic::client::GrpcService;
-use tonic::codegen::StdError;
+use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::Instrument;
 
 pub struct Candidate<S, L> {

@@ -3,18 +3,19 @@ use repc_proto::admin::{
 };
 
 use super::service::raft::{error::HandleError, partition, Handle, ResponseHandle};
-use crate::configuration::Configuration;
-use crate::pb::raft::{
-    raft_client::RaftClient,
-    raft_server::{Raft, RaftServer},
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+use crate::{
+    configuration::Configuration,
+    pb::raft::{
+        raft_client::RaftClient,
+        raft_server::{Raft, RaftServer},
+        AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+    },
+    raft::node::Node,
+    service::{admin::AdminService, raft::RaftService, repc::RepcService},
+    state::{log::Log, State, StateMachine},
+    types::NodeId,
 };
-use crate::raft::node::Node;
-use crate::service::{admin::AdminService, raft::RaftService, repc::RepcService};
-use crate::state::{log::Log, State, StateMachine};
-use crate::types::NodeId;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 pub struct PartitionedLocalRepcGroupBuilder<S, L> {
     confs: Vec<Configuration>,

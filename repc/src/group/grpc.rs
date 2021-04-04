@@ -1,9 +1,11 @@
-use crate::configuration::Configuration;
-use crate::pb::raft::{raft_client::RaftClient, raft_server::RaftServer};
-use crate::raft::node::Node;
-use crate::service::{raft::RaftService, repc::RepcService};
-use crate::state::{log::in_memory::InMemoryLog, State, StateMachine};
-use crate::types::NodeId;
+use crate::{
+    configuration::Configuration,
+    pb::raft::{raft_client::RaftClient, raft_server::RaftServer},
+    raft::node::Node,
+    service::{raft::RaftService, repc::RepcService},
+    state::{log::in_memory::InMemoryLog, State, StateMachine},
+    types::NodeId,
+};
 use http::Uri;
 use repc_proto::repc::repc_server::RepcServer;
 use std::collections::HashMap;

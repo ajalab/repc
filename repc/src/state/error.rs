@@ -1,6 +1,5 @@
 use prost::{DecodeError, EncodeError};
-use std::error;
-use std::fmt;
+use std::{error, fmt};
 use tonic::Status;
 
 #[derive(Clone, Debug)]

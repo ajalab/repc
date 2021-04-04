@@ -1,25 +1,26 @@
-use super::commit_manager::CommitManagerNotifier;
-use super::message::Ready;
-use crate::configuration::LeaderConfiguration;
-use crate::pb::raft::raft_client::RaftClient;
-use crate::pb::raft::AppendEntriesRequest;
-use crate::state::log::{Log, LogIndex};
-use crate::state::{State, StateMachine};
-use crate::types::{NodeId, Term};
+use super::{commit_manager::CommitManagerNotifier, message::Ready};
+use crate::{
+    configuration::LeaderConfiguration,
+    pb::raft::raft_client::RaftClient,
+    pb::raft::AppendEntriesRequest,
+    state::log::{Log, LogIndex},
+    state::{State, StateMachine},
+    types::{NodeId, Term},
+};
 use futures::FutureExt;
-use std::time::Duration;
 use std::{
     fmt,
     sync::{Arc, Weak},
+    time::Duration,
 };
-use tokio::sync::{
-    mpsc::{self, error::TrySendError},
-    RwLock,
+use tokio::{
+    sync::{
+        mpsc::{self, error::TrySendError},
+        RwLock,
+    },
+    time,
 };
-use tokio::time;
-use tonic::client::GrpcService;
-use tonic::codegen::StdError;
-use tonic::{body::BoxBody, Status};
+use tonic::{body::BoxBody, client::GrpcService, codegen::StdError, Status};
 use tracing::Instrument;
 
 pub struct Appender {

@@ -1,5 +1,4 @@
-use crate::pb::raft::LogEntry;
-use crate::types::Term;
+use crate::{pb::raft::LogEntry, types::Term};
 
 pub mod in_memory;
 

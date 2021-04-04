@@ -1,27 +1,21 @@
-use super::candidate;
-use super::error::CommandError;
-use super::follower;
-use super::leader;
-use super::role::Role;
-use crate::configuration::Configuration;
-use crate::pb::raft::{
-    log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
-    RequestVoteRequest, RequestVoteResponse,
+use super::{candidate, error::CommandError, follower, leader, role::Role};
+use crate::{
+    configuration::Configuration,
+    pb::raft::{
+        log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
+        RequestVoteRequest, RequestVoteResponse,
+    },
+    raft::message::Message,
+    session::RepcClientId,
+    session::Sessions,
+    state::{log::Log, State, StateMachine},
+    types::{NodeId, Term},
 };
-use crate::raft::message::Message;
-use crate::session::RepcClientId;
-use crate::session::Sessions;
-use crate::state::{log::Log, State, StateMachine};
-use crate::types::{NodeId, Term};
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
-use std::collections::HashMap;
-use std::error;
-use std::sync::Arc;
+use std::{collections::HashMap, error, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
-use tonic::body::BoxBody;
-use tonic::client::GrpcService;
-use tonic::codegen::StdError;
+use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::Instrument;
 
 pub struct Node<S, L, T> {

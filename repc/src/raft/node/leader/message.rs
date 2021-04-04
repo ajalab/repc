@@ -1,5 +1,4 @@
-use crate::state::error::StateMachineError;
-use crate::state::log::LogIndex;
+use crate::state::{error::StateMachineError, log::LogIndex};
 use bytes::Bytes;
 
 /// A message sent from the node process to an appender.

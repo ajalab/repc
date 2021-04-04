@@ -2,9 +2,11 @@ pub mod codec;
 mod error;
 
 use self::error::RepcServiceError;
-use crate::pb::raft::{log_entry::Command, Action, Register};
-use crate::raft::message::Message;
-use crate::session::RepcClientId;
+use crate::{
+    pb::raft::{log_entry::Command, Action, Register},
+    raft::message::Message,
+    session::RepcClientId,
+};
 use bytes::{Buf, Bytes};
 use repc_proto::repc::{
     metadata::METADATA_REPC_CLIENT_ID_KEY, repc_server::Repc, types::Sequence, CommandRequest,

@@ -1,7 +1,6 @@
 use std::future::Future;
 
-use tokio::sync::mpsc;
-use tokio::time::Duration;
+use tokio::{sync::mpsc, time::Duration};
 
 #[derive(Debug)]
 pub struct Closed;

@@ -1,5 +1,4 @@
-use bytes::buf::Buf;
-use bytes::{BufMut, Bytes};
+use bytes::{Buf, BufMut, Bytes};
 use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
 use tonic::Status;
 

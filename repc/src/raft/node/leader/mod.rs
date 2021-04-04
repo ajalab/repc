@@ -3,24 +3,21 @@ mod commit_manager;
 pub mod error;
 mod message;
 
-use self::appender::Appender;
-use self::commit_manager::CommitManager;
+use self::{appender::Appender, commit_manager::CommitManager};
 use super::error::CommandError;
-use crate::configuration::Configuration;
-use crate::pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry};
-use crate::session::{RepcClientId, Sessions};
-use crate::state::{log::Log, State, StateMachine};
-use crate::types::{NodeId, Term};
+use crate::{
+    configuration::Configuration,
+    pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry},
+    session::{RepcClientId, Sessions},
+    state::{log::Log, State, StateMachine},
+    types::{NodeId, Term},
+};
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt};
 use repc_proto::repc::types::Sequence;
-use std::collections::HashMap;
-use std::iter;
-use std::sync::Arc;
+use std::{collections::HashMap, iter, sync::Arc};
 use tokio::sync::{oneshot, RwLock};
-use tonic::body::BoxBody;
-use tonic::client::GrpcService;
-use tonic::codegen::StdError;
+use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::{Instrument, Level};
 
 pub struct Leader<S, L> {

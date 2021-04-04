@@ -1,6 +1,6 @@
-use crate::pb::raft::raft_server::Raft;
 use crate::pb::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+    raft_server::Raft, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
 };
 use crate::raft::message::Message;
 use tokio::sync::mpsc;

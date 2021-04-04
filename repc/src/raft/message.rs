@@ -1,10 +1,12 @@
 use super::node::error::CommandError;
-use crate::pb::raft::{
-    log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
-    RequestVoteResponse,
+use crate::{
+    pb::raft::{
+        log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+        RequestVoteResponse,
+    },
+    session::RepcClientId,
+    types::NodeId,
 };
-use crate::session::RepcClientId;
-use crate::types::NodeId;
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
 use std::error;

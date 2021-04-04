@@ -1,14 +1,15 @@
 use super::deadline_clock::DeadlineClock;
-use crate::configuration::Configuration;
-use crate::pb::raft::{
-    AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+use crate::{
+    configuration::Configuration,
+    pb::raft::{
+        AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+    },
+    raft::message::Message,
+    state::{log::Log, State, StateMachine},
+    types::{NodeId, Term},
 };
-use crate::raft::message::Message;
-use crate::state::{log::Log, State, StateMachine};
-use crate::types::{NodeId, Term};
 use rand::Rng;
-use std::error;
-use std::sync::Arc;
+use std::{error, sync::Arc};
 use tokio::sync::mpsc;
 
 pub struct Follower<S, L> {
