@@ -1,7 +1,4 @@
-use super::{
-    error::CommitError,
-    message::{Applied, Replicated},
-};
+use super::{error::CommitError, message::Applied};
 use crate::{
     raft::node::error::CommandError,
     state::{
@@ -47,7 +44,7 @@ impl CommitManager {
             tx_applied,
             rx_applied,
         };
-        let commit_manager_notifier = CommitManagerNotifier { tx_replicated };
+        let commit_manager_notifier = CommitManagerNotifier { tx: tx_replicated };
 
         (commit_manager, commit_manager_notifier)
     }
@@ -96,19 +93,28 @@ impl CommitManagerSubscription {
 
 #[derive(Clone)]
 pub struct CommitManagerNotifier {
-    tx_replicated: mpsc::Sender<Replicated>,
+    tx: mpsc::Sender<(NodeId, Result<LogIndex, ()>)>,
 }
 
+pub struct CommitManagerNotifierError;
+
 impl CommitManagerNotifier {
-    pub async fn notify(
+    pub async fn notify_success(
         &mut self,
         id: NodeId,
         index: LogIndex,
-        success: bool,
-    ) -> Result<(), mpsc::error::SendError<Replicated>> {
-        self.tx_replicated
-            .send(Replicated::new(id, index, success))
+    ) -> Result<(), CommitManagerNotifierError> {
+        self.tx
+            .send((id, Ok(index)))
             .await
+            .map_err(|_| CommitManagerNotifierError)
+    }
+
+    pub async fn notify_failed(&mut self, id: NodeId) -> Result<(), CommitManagerNotifierError> {
+        self.tx
+            .send((id, Err(())))
+            .await
+            .map_err(|_| CommitManagerNotifierError)
     }
 }
 
@@ -116,7 +122,7 @@ struct CommitManagerProcess<S, L> {
     id: NodeId,
     term: Term,
     tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
-    rx_replicated: mpsc::Receiver<Replicated>,
+    rx_replicated: mpsc::Receiver<(NodeId, Result<LogIndex, ()>)>,
     match_indices: HashMap<NodeId, LogIndex>,
     state: Weak<RwLock<State<S, L>>>,
     committed_index: LogIndex,
@@ -132,7 +138,7 @@ where
         id: NodeId,
         term: Term,
         tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
-        rx_replicated: mpsc::Receiver<Replicated>,
+        rx_replicated: mpsc::Receiver<(NodeId, Result<LogIndex, ()>)>,
         nodes: impl Iterator<Item = NodeId>,
         state: Weak<RwLock<State<S, L>>>,
     ) -> Self {
@@ -169,10 +175,10 @@ where
         );
         async {
             tracing::info!("started commit manager");
-            while let Some(replicated) = self.rx_replicated.recv().await {
+            while let Some((id, result)) = self.rx_replicated.recv().await {
                 let span =
                     tracing::trace_span!(target: "leader::commit_manager", "handle_replication");
-                if let Err(e) = self.handle_replication(replicated).instrument(span).await {
+                if let Err(e) = self.handle_replication(id, result).instrument(span).await {
                     let _ = self.tx_applied.send(Err(e));
                     break;
                 }
@@ -182,12 +188,14 @@ where
         .await;
     }
 
-    async fn handle_replication(&mut self, replicated: Replicated) -> Result<(), CommitError> {
-        if replicated.success() {
-            self.handle_replication_success(replicated.id(), replicated.index())
-                .await
-        } else {
-            self.handle_replication_failure(replicated.id())
+    async fn handle_replication(
+        &mut self,
+        id: NodeId,
+        result: Result<LogIndex, ()>,
+    ) -> Result<(), CommitError> {
+        match result {
+            Ok(index) => self.handle_replication_success(id, index).await,
+            Err(_) => self.handle_replication_failure(id),
         }
     }
 

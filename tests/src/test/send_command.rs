@@ -45,7 +45,7 @@ async fn make_1_leader<R: Raft + Clone>(
 }
 
 #[tokio::test]
-async fn send_command_healthy() {
+async fn healthy() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
@@ -55,7 +55,6 @@ async fn send_command_healthy() {
 
     let mut client = make_1_leader(&mut handle).await;
 
-    // Send a command (1)
     let res = futures::join!(
         client.add(AddRequest { i: 10 }),
         h12.expect_append_entries_success(),
@@ -64,7 +63,6 @@ async fn send_command_healthy() {
     .0;
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 
-    // Send a command (2)
     let res = futures::join!(
         client.add(AddRequest { i: 20 }),
         h12.expect_append_entries_success(),
@@ -75,7 +73,7 @@ async fn send_command_healthy() {
 }
 
 #[tokio::test]
-async fn send_command_failure_noncritical() {
+async fn block_append_entries_request_minor() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
@@ -85,7 +83,6 @@ async fn send_command_failure_noncritical() {
 
     let mut client = make_1_leader(&mut handle).await;
 
-    // Only a few nodes (not majority) fail
     let res = futures::join!(
         client.add(AddRequest { i: 10 }),
         h12.expect_append_entries_success(),
@@ -96,7 +93,7 @@ async fn send_command_failure_noncritical() {
 }
 
 #[tokio::test]
-async fn send_command_failure_critical() {
+async fn block_append_entries_request_major() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);

@@ -7,16 +7,19 @@ use crate::state::log::{Log, LogIndex};
 use crate::state::{State, StateMachine};
 use crate::types::{NodeId, Term};
 use futures::FutureExt;
-use std::sync::{Arc, Weak};
 use std::time::Duration;
+use std::{
+    fmt,
+    sync::{Arc, Weak},
+};
 use tokio::sync::{
     mpsc::{self, error::TrySendError},
     RwLock,
 };
 use tokio::time;
-use tonic::body::BoxBody;
 use tonic::client::GrpcService;
 use tonic::codegen::StdError;
+use tonic::{body::BoxBody, Status};
 use tracing::Instrument;
 
 pub struct Appender {
@@ -74,10 +77,6 @@ struct AppenderProcess<S, L, T> {
     rx: mpsc::Receiver<Ready>,
     commit_manager_notifier: CommitManagerNotifier,
     state: Weak<RwLock<State<S, L>>>,
-
-    wait_notification: bool,
-    next_index: LogIndex,
-    match_index: LogIndex,
 }
 
 impl<S, L, T> AppenderProcess<S, L, T>
@@ -107,43 +106,22 @@ where
             commit_manager_notifier,
             state,
             rx,
-
-            wait_notification: false,
-            next_index: 0,
-            match_index: 0,
         }
     }
 
-    async fn append(&mut self) {
-        if self.wait_notification {
-            tracing::trace!("wait for heartbeat timeout or notification");
-            let wait = time::timeout(
-                Duration::from_millis(self.conf.heartbeat_timeout_millis),
-                self.rx.recv(),
-            )
-            .await;
-            if let Ok(None) = wait {
-                return;
-            }
-        } else {
-            let _ = self.rx.recv().now_or_never();
-        }
-
-        let state = match self.state.upgrade() {
-            Some(state) => state,
-            None => {
-                tracing::info!("can't read the state. likely not being a leader anymore",);
-                return;
-            }
-        };
+    async fn append(&mut self, next_index: LogIndex) -> Result<LogIndex, AppendError> {
+        let state = self
+            .state
+            .upgrade()
+            .ok_or_else(|| AppendError::NotReadableState)?;
         let state = state.read().await;
         let log = state.log();
 
-        let prev_log_index = self.next_index - 1;
+        let prev_log_index = next_index - 1;
         let prev_log_term = log.get(prev_log_index).map(|e| e.term).unwrap_or(0);
         let last_committed_index = state.last_committed();
         let entries = log
-            .get_from(self.next_index)
+            .get_from(next_index)
             .iter()
             .map(Clone::clone)
             .collect::<Vec<_>>();
@@ -165,60 +143,41 @@ where
         )
         .await;
 
-        let (notify, success) = match res {
-            Err(_) => {
-                tracing::warn!(
-                    "AppendRequest aborted because it reached the deadline: {}ms",
-                    self.conf.wait_append_entries_response_timeout_millis,
-                );
-                (true, false)
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("AppendRequest failed due to a connection error: {}", e,);
-                (true, false)
-            }
+        match res {
+            Err(_) => Err(AppendError::Timeout),
+            Ok(Err(e)) => Err(AppendError::ConnectionError(e)),
             Ok(Ok(res)) => {
                 let res = res.into_inner();
                 if res.success {
-                    self.match_index = prev_log_index + (n_entries as LogIndex);
                     if n_entries > 0 {
                         tracing::trace!(
-                                "AppendRequest succeeded in appending {} entries. Updated match_index from {} to {}",
-                                n_entries,
-                                prev_log_index,
-                                self.match_index,
-                            );
+                            "AppendRequest succeeded in appending {} entries",
+                            n_entries,
+                        );
                     } else {
                         tracing::trace!("AppendRequest succeeded in sending a heartbeat");
                     }
-                    self.next_index = self.match_index + 1;
-                    self.wait_notification = true;
-                    (true, true)
+                    Ok(prev_log_index + (n_entries as LogIndex))
                 } else {
-                    self.next_index -= 1;
-                    self.wait_notification = false;
-                    (false, false)
+                    if res.term == self.term {
+                        Err(AppendError::InconsistentLog)
+                    } else {
+                        Err(AppendError::InvalidTerm)
+                    }
                 }
-            }
-        };
-        if notify {
-            if let Err(e) = self
-                .commit_manager_notifier
-                .notify(self.target_id, self.match_index, success)
-                .await
-            {
-                tracing::warn!("append result is not notified to CommitManager: {}", e);
             }
         }
     }
 
     async fn run(mut self) {
-        self.next_index = {
+        let mut next_index = {
             let state = self.state.upgrade();
             let state = state.unwrap();
             let state = state.read().await;
             state.log().last_index() + 1
         };
+        let mut match_index = 0;
+        let mut wait = false;
 
         let span = tracing::info_span!(
             target: "leader::appender", "appender",
@@ -230,15 +189,95 @@ where
         async {
             tracing::info!("started appender");
             loop {
+                if wait {
+                    tracing::trace!("wait for heartbeat timeout or notification");
+                    let wait = time::timeout(
+                        Duration::from_millis(self.conf.heartbeat_timeout_millis),
+                        self.rx.recv(),
+                    )
+                    .await;
+                    if let Ok(None) = wait {
+                        break;
+                    }
+                } else {
+                    let _ = self.rx.recv().now_or_never();
+                }
+
                 let span = tracing::trace_span!(
                     target: "leader::appender", "append",
-                    match_index = self.match_index,
-                    next_index = self.next_index,
+                    match_index = match_index,
+                    next_index = next_index,
                 );
-                self.append().instrument(span).await;
+
+                let result = self.append(next_index).instrument(span).await;
+                match result {
+                    Ok(m_idx) => {
+                        let _ = self
+                            .commit_manager_notifier
+                            .notify_success(self.target_id, m_idx)
+                            .await;
+                        match_index = m_idx;
+                        next_index = m_idx + 1;
+                        wait = true;
+                    }
+                    Err(e) if e.retryable() => {
+                        next_index -= 1;
+                        wait = false;
+                    }
+                    Err(e) => {
+                        let _ = self
+                            .commit_manager_notifier
+                            .notify_failed(self.target_id)
+                            .await;
+                        if e.graceful() {
+                            tracing::info!("shutdown Appender gracefully: {}", e);
+                        } else {
+                            tracing::warn!("shutdown Appender due to an unexpected error: {}", e);
+                        }
+                        break;
+                    }
+                };
             }
         }
         .instrument(span)
         .await
+    }
+}
+
+enum AppendError {
+    InconsistentLog,
+    InvalidTerm,
+    NotReadableState,
+    Timeout,
+    ConnectionError(Status),
+}
+
+impl AppendError {
+    fn retryable(&self) -> bool {
+        match self {
+            AppendError::InconsistentLog => true,
+            _ => false,
+        }
+    }
+
+    fn graceful(&self) -> bool {
+        match self {
+            AppendError::InconsistentLog
+            | AppendError::InvalidTerm
+            | AppendError::NotReadableState => true,
+            AppendError::Timeout | AppendError::ConnectionError(_) => false,
+        }
+    }
+}
+
+impl fmt::Display for AppendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AppendError::InconsistentLog => write!(f, "AppendEntries request was failed due to inconsistent log entries; previous log term in the request doesn't match the actual term"),
+            AppendError::InvalidTerm => write!(f, "AppendEntries request was failed because the target node has different term"),
+            AppendError::NotReadableState => write!(f, "AppendEntries request was canceled because it couldn't load the state; likely not being a leader anymore"),
+            AppendError::Timeout => write!(f, "AppendEntries request aborted due to timeout"),
+            AppendError::ConnectionError(e) => write!(f, "AppendEntries request aborted due to a connection error: {:?}", e),
+        }
     }
 }

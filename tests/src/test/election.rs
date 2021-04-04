@@ -9,7 +9,7 @@ use repc::{
 };
 
 #[tokio::test]
-async fn initial_election() {
+async fn success() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
