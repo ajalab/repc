@@ -1,7 +1,7 @@
 pub mod error;
 
 use self::error::SessionError;
-use crate::{crate::util, raft::node::error::CommandError};
+use crate::{raft::node::error::CommandError, util};
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
 use std::collections::HashMap;

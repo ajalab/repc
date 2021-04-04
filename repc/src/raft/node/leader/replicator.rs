@@ -23,11 +23,11 @@ use tokio::{
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError, Status};
 use tracing::Instrument;
 
-pub struct Appender {
+pub struct Replicator {
     tx: mpsc::Sender<Ready>,
 }
 
-impl Appender {
+impl Replicator {
     pub fn spawn<S, L, T>(
         id: NodeId,
         term: Term,
@@ -45,8 +45,8 @@ impl Appender {
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
     {
         let (tx, rx) = mpsc::channel::<Ready>(1);
-        let appender = Appender { tx };
-        let process = AppenderProcess::new(
+        let replicator = Replicator { tx };
+        let process = ReplicatorProcess::new(
             id,
             term,
             conf,
@@ -58,18 +58,18 @@ impl Appender {
         );
 
         tokio::spawn(process.run());
-        appender
+        replicator
     }
 
     /// Returns true if succeeded.
-    /// Otherwise false if the target appender process is down.
+    /// Otherwise false if the target replicator process is down.
     pub fn try_notify(&mut self) -> bool {
         let result = self.tx.try_send(Ready);
         !matches!(result, Err(TrySendError::Closed(_)))
     }
 }
 
-struct AppenderProcess<S, L, T> {
+struct ReplicatorProcess<S, L, T> {
     id: NodeId,
     term: Term,
     conf: Arc<LeaderConfiguration>,
@@ -80,7 +80,7 @@ struct AppenderProcess<S, L, T> {
     state: Weak<RwLock<State<S, L>>>,
 }
 
-impl<S, L, T> AppenderProcess<S, L, T>
+impl<S, L, T> ReplicatorProcess<S, L, T>
 where
     S: StateMachine,
     L: Log,
@@ -98,7 +98,7 @@ where
         commit_manager_notifier: CommitManagerNotifier,
         state: Weak<RwLock<State<S, L>>>,
     ) -> Self {
-        AppenderProcess {
+        ReplicatorProcess {
             id,
             term,
             conf,
@@ -110,7 +110,7 @@ where
         }
     }
 
-    async fn append(&mut self, next_index: LogIndex) -> Result<LogIndex, AppendError> {
+    async fn replicate(&mut self, next_index: LogIndex) -> Result<LogIndex, AppendError> {
         let state = self
             .state
             .upgrade()
@@ -181,14 +181,14 @@ where
         let mut wait = false;
 
         let span = tracing::info_span!(
-            target: "leader::appender", "appender",
+            target: "leader::replicator", "replicator",
             id = self.id,
             term = self.term,
             target_id = self.target_id,
         );
 
         async {
-            tracing::info!("started appender");
+            tracing::info!("started replicator");
             loop {
                 if wait {
                     tracing::trace!("wait for heartbeat timeout or notification");
@@ -205,12 +205,12 @@ where
                 }
 
                 let span = tracing::trace_span!(
-                    target: "leader::appender", "append",
+                    target: "leader::replicator", "replicate",
                     match_index = match_index,
                     next_index = next_index,
                 );
 
-                let result = self.append(next_index).instrument(span).await;
+                let result = self.replicate(next_index).instrument(span).await;
                 match result {
                     Ok(m_idx) => {
                         let _ = self
@@ -231,9 +231,9 @@ where
                             .notify_failed(self.target_id)
                             .await;
                         if e.graceful() {
-                            tracing::info!("shutdown Appender gracefully: {}", e);
+                            tracing::info!("shutdown Replicator gracefully: {}", e);
                         } else {
-                            tracing::warn!("shutdown Appender due to an unexpected error: {}", e);
+                            tracing::warn!("shutdown Replicator due to an unexpected error: {}", e);
                         }
                         break;
                     }

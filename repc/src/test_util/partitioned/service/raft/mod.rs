@@ -12,7 +12,7 @@ use crate::{
     },
     util,
 };
-use std::{convert::TryFrom, std::sync::Arc};
+use std::{convert::TryFrom, sync::Arc};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tonic::{Request, Response, Status};
 

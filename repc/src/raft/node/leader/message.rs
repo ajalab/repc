@@ -1,7 +1,7 @@
 use crate::state::{error::StateMachineError, log::LogIndex};
 use bytes::Bytes;
 
-/// A message sent from the node process to an appender.
+/// A message sent from the node process to a replicator.
 /// Represents that a new entry is ready in the log.
 pub struct Ready;
 

@@ -1,9 +1,9 @@
-mod appender;
 mod commit_manager;
 pub mod error;
 mod message;
+mod replicator;
 
-use self::{appender::Appender, commit_manager::CommitManager};
+use self::{commit_manager::CommitManager, replicator::Replicator};
 use super::error::CommandError;
 use crate::{
     configuration::Configuration,
@@ -22,7 +22,7 @@ use tracing::{Instrument, Level};
 
 pub struct Leader<S, L> {
     term: Term,
-    appenders: Vec<Appender>,
+    replicators: Vec<Replicator>,
     commit_manager: CommitManager,
     state: Option<Arc<RwLock<State<S, L>>>>,
     sessions: Arc<Sessions>,
@@ -53,10 +53,10 @@ where
         let (commit_manager, commit_manager_notifier) =
             CommitManager::spawn(id, term, nodes, Arc::downgrade(&state));
 
-        let appenders = clients
+        let replicators = clients
             .iter()
             .map(|(&target_id, client)| {
-                Appender::spawn(
+                Replicator::spawn(
                     id,
                     term,
                     leader_conf.clone(),
@@ -70,7 +70,7 @@ where
 
         let leader = Leader {
             term,
-            appenders,
+            replicators,
             commit_manager,
             state: Some(state),
             sessions,
@@ -130,8 +130,8 @@ where
                 .instrument(span),
         );
 
-        for appender in &mut self.appenders {
-            let _ = appender.try_notify();
+        for replicator in &mut self.replicators {
+            let _ = replicator.try_notify();
         }
     }
 
