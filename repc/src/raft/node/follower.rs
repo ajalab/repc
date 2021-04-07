@@ -6,7 +6,7 @@ use crate::{
     },
     raft::message::Message,
     state::{log::Log, State, StateMachine},
-    types::{NodeId, Term},
+    types::NodeId,
 };
 use rand::Rng;
 use std::{error, sync::Arc};
@@ -22,12 +22,7 @@ where
     S: StateMachine,
     L: Log,
 {
-    pub fn spawn(
-        conf: Arc<Configuration>,
-        term: Term,
-        state: State<S, L>,
-        tx: mpsc::Sender<Message>,
-    ) -> Self {
+    pub fn spawn(conf: Arc<Configuration>, state: State<S, L>, tx: mpsc::Sender<Message>) -> Self {
         let mut rng = rand::thread_rng();
         let timeout_millis: u64 = conf.follower.election_timeout_millis
             + rng.gen_range(0..=conf.follower.election_timeout_jitter_millis);
@@ -40,7 +35,7 @@ where
 
         Follower {
             deadline_clock,
-            inner: InnerFollower::new(term, state),
+            inner: InnerFollower::new(state),
         }
     }
 
@@ -70,7 +65,6 @@ where
 }
 
 struct InnerFollower<S, L> {
-    term: Term,
     voted_for: Option<NodeId>,
     state: Option<State<S, L>>,
 }
@@ -80,9 +74,8 @@ where
     S: StateMachine,
     L: Log,
 {
-    fn new(term: Term, state: State<S, L>) -> Self {
+    fn new(state: State<S, L>) -> Self {
         Self {
-            term,
             voted_for: None,
             state: Some(state),
         }
@@ -96,16 +89,18 @@ where
         //   req.term <= self.term
         // because the node must have updated its term
 
-        let valid_term = req.term == self.term;
+        let state = self.state.as_ref().unwrap();
+        let term = state.term().get();
+
+        let valid_term = req.term == term;
         let valid_candidate = match self.voted_for {
             None => true,
             Some(id) => id == req.candidate_id,
         };
 
         let vote_granted = valid_term && valid_candidate && {
-            let state = self.state.as_ref().unwrap();
             let log = state.log();
-            let last_term = log.last_term();
+            let last_term = log.last_term().map(|t| t.get()).unwrap_or(0);
             let last_index = log.last_index();
             (req.last_log_term, req.last_log_index) >= (last_term, last_index)
         };
@@ -131,10 +126,7 @@ where
             );
         }
 
-        Ok(RequestVoteResponse {
-            term: self.term,
-            vote_granted,
-        })
+        Ok(RequestVoteResponse { term, vote_granted })
     }
 
     async fn handle_append_entries_request(
@@ -145,7 +137,10 @@ where
         //   req.term <= self.term
         // because the node must have updated its term
 
-        if req.term != self.term {
+        let state = self.state.as_mut().unwrap();
+        let term = state.term().get();
+
+        if req.term != term {
             tracing::debug!(
                 target_id = req.leader_id,
                 "refuse AppendEntry request from {}: invalid term {}",
@@ -153,7 +148,7 @@ where
                 req.term,
             );
             return Ok(AppendEntriesResponse {
-                term: self.term,
+                term,
                 success: false,
             });
         }
@@ -172,7 +167,6 @@ where
         // leader log      s s t t u u
         //                ---=--------
         // where s, t, u: term, s <= t < u
-        let state = self.state.as_mut().unwrap();
         if req.prev_log_index > 0 {
             let prev_log_entry = state.log().get(req.prev_log_index);
             let prev_log_term = prev_log_entry.map(|e| e.term);
@@ -185,7 +179,7 @@ where
                     prev_log_term.unwrap_or(0),
                 );
                 return Ok(AppendEntriesResponse {
-                    term: self.term,
+                    term,
                     success: false,
                 });
             }
@@ -229,7 +223,7 @@ where
         state.commit(req.last_committed_index);
 
         Ok(AppendEntriesResponse {
-            term: self.term,
+            term,
             success: true,
         })
     }
@@ -244,32 +238,35 @@ mod test {
     use super::*;
     use crate::pb::raft::LogEntry;
     use crate::state::{log::in_memory::InMemoryLog, state_machine::test::NoopStateMachine, State};
+    use crate::types::Term;
 
     fn make_follower(
         term: Term,
         log: impl Into<InMemoryLog>,
     ) -> InnerFollower<NoopStateMachine, InMemoryLog> {
         let state_machine = NoopStateMachine {};
-        let state = State::new(state_machine, log.into());
-        InnerFollower::new(term, state)
+        let mut state = State::new(state_machine, log.into());
+        *state.term_mut() = term;
+
+        InnerFollower::new(state)
     }
 
     fn log_entry(term: Term) -> LogEntry {
         LogEntry {
-            term,
+            term: term.get(),
             command: None,
         }
     }
 
     #[tokio::test]
     async fn refuse_request_vote_invalid_term() {
-        let term = 10;
+        let term = Term::new(10);
         let log = vec![];
         let mut follower = make_follower(term, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {
-            term: term + 1,
+            term: term.get() + 1,
             candidate_id,
             last_log_index: 1,
             last_log_term: 1,
@@ -284,7 +281,7 @@ mod test {
 
     #[tokio::test]
     async fn refuse_request_vote_already_voted_to_another() {
-        let term = 10;
+        let term = Term::new(10);
         let log = vec![];
         let mut follower = make_follower(term, log);
 
@@ -292,7 +289,7 @@ mod test {
         follower.voted_for = Some(candidate_id);
 
         let req = RequestVoteRequest {
-            term,
+            term: term.get(),
             candidate_id: candidate_id + 1,
             last_log_index: 1,
             last_log_term: 1,
@@ -307,17 +304,17 @@ mod test {
 
     #[tokio::test]
     async fn refuse_request_vote_smaller_log_term() {
-        let term = 10;
+        let term = Term::new(10);
         let last_log_index = 1;
         let log = vec![log_entry(term); last_log_index as usize];
         let mut follower = make_follower(term, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {
-            term: term,
+            term: term.get(),
             candidate_id: candidate_id,
             last_log_index: last_log_index,
-            last_log_term: term - 1,
+            last_log_term: term.get() - 1,
         };
         let res = follower
             .handle_request_vote_request(req)
@@ -329,17 +326,17 @@ mod test {
 
     #[tokio::test]
     async fn refuse_request_vote_smaller_log_index() {
-        let term = 10;
+        let term = Term::new(10);
         let last_log_index = 2;
         let log = vec![log_entry(term); last_log_index as usize];
         let mut follower = make_follower(term, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {
-            term: term,
+            term: term.get(),
             candidate_id: candidate_id,
             last_log_index: last_log_index - 1,
-            last_log_term: term,
+            last_log_term: term.get(),
         };
         let res = follower
             .handle_request_vote_request(req)
@@ -351,17 +348,17 @@ mod test {
 
     #[tokio::test]
     async fn accept_request_vote() {
-        let term = 10;
+        let term = Term::new(10);
         let last_log_index = 2;
         let log = vec![log_entry(term); last_log_index as usize];
         let mut follower = make_follower(term, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {
-            term: term,
+            term: term.get(),
             candidate_id: candidate_id,
             last_log_index,
-            last_log_term: term,
+            last_log_term: term.get(),
         };
         let res = follower
             .handle_request_vote_request(req)

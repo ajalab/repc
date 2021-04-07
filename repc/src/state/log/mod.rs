@@ -10,6 +10,6 @@ pub trait Log {
     fn append<I: Iterator<Item = LogEntry>>(&mut self, entries: I) -> LogIndex;
     fn truncate(&mut self, i: LogIndex);
 
-    fn last_term(&self) -> Term;
+    fn last_term(&self) -> Option<Term>;
     fn last_index(&self) -> LogIndex;
 }

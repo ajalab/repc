@@ -1,5 +1,5 @@
 use super::{Log, LogIndex};
-use crate::pb::raft::LogEntry;
+use crate::{pb::raft::LogEntry, types::Term};
 #[derive(Default, Clone)]
 pub struct InMemoryLog {
     entries: Vec<LogEntry>,
@@ -42,8 +42,8 @@ impl Log for InMemoryLog {
     }
 
     /// Returns the term of the last log entry.
-    fn last_term(&self) -> LogIndex {
-        self.entries.last().map(|e| e.term).unwrap_or(0)
+    fn last_term(&self) -> Option<Term> {
+        self.entries.last().map(|e| Term::new(e.term))
     }
 
     /// Returns the index of the last appended log entry.

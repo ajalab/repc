@@ -4,7 +4,7 @@ use crate::{
     pb::raft::{raft_client::RaftClient, RequestVoteRequest, RequestVoteResponse},
     raft::message::Message,
     state::{log::Log, State, StateMachine},
-    types::{NodeId, Term},
+    types::NodeId,
 };
 use rand::Rng;
 use std::{
@@ -17,7 +17,6 @@ use tracing::Instrument;
 
 pub struct Candidate<S, L> {
     id: NodeId,
-    term: Term,
     votes: HashSet<NodeId>,
     quorum: usize,
     state: Option<State<S, L>>,
@@ -33,7 +32,6 @@ where
     pub fn spawn(
         id: NodeId,
         conf: Arc<Configuration>,
-        term: Term,
         quorum: usize,
         state: State<S, L>,
         tx: mpsc::Sender<Message>,
@@ -43,16 +41,22 @@ where
             + rng.gen_range(0..=(conf.candidate.election_timeout_jitter_millis));
 
         let tx_dc = tx.clone();
+        let term = state.term();
         let deadline_clock = DeadlineClock::spawn(timeout_millis, async move {
             if let Err(_) = tx_dc.send(Message::ElectionTimeout).await {
                 tracing::warn!(
                     id,
-                    term,
+                    term = term.get(),
                     state = "candidate",
                     "failed to send ElectionTimeout message"
                 );
             }
-            tracing::debug!(id, term, state = "candidate", "start re-election");
+            tracing::debug!(
+                id,
+                term = term.get(),
+                state = "candidate",
+                "start re-election"
+            );
         });
 
         let mut votes = HashSet::new();
@@ -60,7 +64,6 @@ where
 
         Candidate {
             id,
-            term,
             votes,
             quorum,
             state: Some(state),
@@ -74,7 +77,9 @@ where
         res: RequestVoteResponse,
         id: NodeId,
     ) -> bool {
-        if self.term != res.term {
+        let state = self.state.as_ref().unwrap();
+        let term = state.term().get();
+        if term != res.term {
             tracing::debug!(
                 "ignored vote from {}, which belongs to the different term: {}",
                 id,
@@ -114,13 +119,14 @@ where
         T::Future: Send,
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
     {
-        let log = self.state.as_ref().unwrap().log();
-        let last_log_term = log.last_term();
+        let state = self.state.as_ref().unwrap();
+        let term = state.term().get();
+        let log = state.log();
+        let last_log_term = log.last_term().map(|t| t.get()).unwrap_or(0);
         let last_log_index = log.last_index();
         for (&id, client) in clients.iter() {
             let mut client = client.clone();
             let tx = self.tx.clone();
-            let term = self.term;
             let candidate_id = self.id;
             let span = tracing::debug_span!(target: "candidate", "send_request_vote_request", target_id = id);
             tokio::spawn(

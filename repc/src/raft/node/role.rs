@@ -50,7 +50,7 @@ where
         let span = tracing::trace_span!(
             target: "role",
             "handle_request_vote_request",
-            term = term,
+            term = term.get(),
             role = self.to_ident(),
         );
 
@@ -126,7 +126,7 @@ where
         let span = tracing::info_span!(
             target: "role",
             "handle_election_timeout",
-            term = term,
+            term = term.get(),
             role = self.to_ident(),
         );
 

@@ -65,15 +65,10 @@ where
     <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
 {
     pub async fn run(self) {
-        let term = 1;
+        let term = self.state.term();
         let sessions = Arc::new(Sessions::default());
         let role = Role::Follower {
-            follower: follower::Follower::spawn(
-                self.conf.clone(),
-                term,
-                self.state,
-                self.tx.clone(),
-            ),
+            follower: follower::Follower::spawn(self.conf.clone(), self.state, self.tx.clone()),
         };
         let mut process = NodeProcess {
             id: self.id,
@@ -116,7 +111,8 @@ where
         let span = tracing::info_span!(target: "node", "node", id = self.id);
         async {
             while let Some(msg) = self.rx.recv().await {
-                let span = tracing::trace_span!(target: "node", "handle_message", term = self.term);
+                let span =
+                    tracing::trace_span!(target: "node", "handle_message", term = self.term.get());
                 self.handle_message(msg).instrument(span).await;
             }
         }
@@ -154,13 +150,7 @@ where
     // if the term of the request is newer than the node's current term.
     fn update_term(&mut self, term: Term) {
         if term > self.term {
-            self.term = term;
-            tracing::debug!(
-                term = term,
-                "received a request with higher term. updated to the new term",
-            );
-
-            self.trans_state_follower();
+            self.trans_state_follower(term);
         }
     }
 
@@ -177,14 +167,14 @@ where
         );
 
         let res = async {
-            self.update_term(req.term);
+            self.update_term(Term::new(req.term));
             self.role.handle_request_vote_request(self.term, req).await
         }
         .instrument(span)
         .await;
 
         let id = self.id;
-        let term = self.term;
+        let term = self.term.get();
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
@@ -229,14 +219,14 @@ where
         );
 
         let res = async {
-            self.update_term(req.term);
+            self.update_term(Term::new(req.term));
             self.role.handle_append_entries_request(req).await
         }
         .instrument(span)
         .await;
 
         let id = self.id;
-        let term = self.term;
+        let term = self.term.get();
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
@@ -257,10 +247,9 @@ where
             "handle_election_timeout",
         );
         async {
-            // TODO: handle the case where the node is not a follower (no need to increment the term here)
-            self.term += 1;
-            tracing::debug!(term = self.term, "election timeout. incremented the term");
-
+            if matches!(self.role, Role::Leader{ .. }) {
+                return;
+            }
             self.trans_state_candidate();
             self.role
                 .handle_election_timeout(self.term, &self.clients)
@@ -289,43 +278,42 @@ where
             .await;
     }
 
-    fn trans_state_follower(&mut self) {
-        tracing::info!(term = self.term, "become a follower");
+    fn trans_state_follower(&mut self, term: Term) {
+        let mut state = self.role.extract_state();
+        *state.term_mut() = term;
+        self.term = term;
 
         self.role = Role::Follower {
-            follower: follower::Follower::spawn(
-                self.conf.clone(),
-                self.term,
-                self.role.extract_state(),
-                self.tx.clone(),
-            ),
-        }
+            follower: follower::Follower::spawn(self.conf.clone(), state, self.tx.clone()),
+        };
+        tracing::info!(term = self.term.get(), "become a follower");
     }
 
     fn trans_state_candidate(&mut self) {
-        tracing::info!(term = self.term, "become a candidate");
+        let mut state = self.role.extract_state();
+        *state.term_mut() += 1;
+        self.term = state.term();
 
         let quorum = (self.clients.len() + 1) / 2;
         self.role = Role::Candidate {
             candidate: candidate::Candidate::spawn(
                 self.id,
                 self.conf.clone(),
-                self.term,
                 quorum,
-                self.role.extract_state(),
+                state,
                 self.tx.clone(),
             ),
         };
+        tracing::info!(term = self.term.get(), "become a candidate");
     }
 
     fn trans_state_leader(&mut self) {
-        tracing::info!(term = self.term, "become a leader");
+        tracing::info!(term = self.term.get(), "become a leader");
 
         self.role = Role::Leader {
             leader: leader::Leader::spawn(
                 self.id,
                 self.conf.clone(),
-                self.term,
                 self.role.extract_state(),
                 self.sessions.clone(),
                 &self.clients,
