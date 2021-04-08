@@ -6,7 +6,6 @@ use crate::{
     },
     raft::message::Message,
     state::{log::Log, State, StateMachine},
-    types::NodeId,
 };
 use rand::Rng;
 use std::{error, sync::Arc};
@@ -65,7 +64,6 @@ where
 }
 
 struct InnerFollower<S, L> {
-    voted_for: Option<NodeId>,
     state: Option<State<S, L>>,
 }
 
@@ -75,10 +73,7 @@ where
     L: Log,
 {
     fn new(state: State<S, L>) -> Self {
-        Self {
-            voted_for: None,
-            state: Some(state),
-        }
+        Self { state: Some(state) }
     }
 
     async fn handle_request_vote_request(
@@ -89,11 +84,12 @@ where
         //   req.term <= self.term
         // because the node must have updated its term
 
-        let state = self.state.as_ref().unwrap();
+        let state = self.state.as_mut().unwrap();
         let term = state.term().get();
+        let voted_for = state.voted_for();
 
         let valid_term = req.term == term;
-        let valid_candidate = match self.voted_for {
+        let valid_candidate = match voted_for {
             None => true,
             Some(id) => id == req.candidate_id,
         };
@@ -105,8 +101,8 @@ where
             (req.last_log_term, req.last_log_index) >= (last_term, last_index)
         };
 
-        if vote_granted && self.voted_for == None {
-            self.voted_for = Some(req.candidate_id);
+        if vote_granted && voted_for == None {
+            *state.voted_for_mut() = Some(req.candidate_id);
         }
 
         if vote_granted {
@@ -116,7 +112,7 @@ where
         } else if !valid_candidate {
             tracing::debug!(
                 "refused vote because we have voted to another: {:?}",
-                self.voted_for,
+                voted_for,
             );
         } else {
             tracing::debug!(
@@ -286,7 +282,7 @@ mod test {
         let mut follower = make_follower(term, log);
 
         let candidate_id = 2;
-        follower.voted_for = Some(candidate_id);
+        *follower.state.as_mut().unwrap().voted_for_mut() = Some(candidate_id);
 
         let req = RequestVoteRequest {
             term: term.get(),

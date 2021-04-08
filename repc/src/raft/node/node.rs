@@ -281,7 +281,8 @@ where
     fn trans_state_follower(&mut self, term: Term) {
         let mut state = self.role.extract_state();
         *state.term_mut() = term;
-        self.term = term;
+        *state.voted_for_mut() = None;
+        self.term = state.term();
 
         self.role = Role::Follower {
             follower: follower::Follower::spawn(self.conf.clone(), state, self.tx.clone()),
@@ -292,6 +293,7 @@ where
     fn trans_state_candidate(&mut self) {
         let mut state = self.role.extract_state();
         *state.term_mut() += 1;
+        *state.voted_for_mut() = Some(self.id);
         self.term = state.term();
 
         let quorum = (self.clients.len() + 1) / 2;
