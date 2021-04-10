@@ -8,7 +8,7 @@ use crate::{
     raft::message::Message,
     session::RepcClientId,
     session::Sessions,
-    state::{log::Log, State, StateMachine},
+    state::{log::Log, ElectionState, State, StateMachine},
     types::{NodeId, Term},
 };
 use bytes::Bytes;
@@ -65,16 +65,22 @@ where
     <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
 {
     pub async fn run(self) {
-        let term = self.state.term();
+        let election_state = ElectionState::default();
         let sessions = Arc::new(Sessions::default());
         let role = Role::Follower {
-            follower: follower::Follower::spawn(self.conf.clone(), self.state, self.tx.clone()),
+            follower: follower::Follower::spawn(
+                self.conf.clone(),
+                election_state.term,
+                election_state.voted_for,
+                self.state,
+                self.tx.clone(),
+            ),
         };
         let mut process = NodeProcess {
             id: self.id,
             conf: self.conf,
             sessions,
-            term,
+            election_state,
             role,
             tx: self.tx,
             rx: self.rx,
@@ -89,8 +95,7 @@ struct NodeProcess<S, L, T> {
     conf: Arc<Configuration>,
     sessions: Arc<Sessions>,
 
-    // TODO: make these persistent
-    term: Term,
+    election_state: ElectionState,
 
     role: Role<S, L>,
 
@@ -112,7 +117,7 @@ where
         async {
             while let Some(msg) = self.rx.recv().await {
                 let span =
-                    tracing::trace_span!(target: "node", "handle_message", term = self.term.get());
+                    tracing::trace_span!(target: "node", "handle_message", term = self.election_state.term.get());
                 self.handle_message(msg).instrument(span).await;
             }
         }
@@ -149,7 +154,7 @@ where
     // Update the node's term and return to Follower state,
     // if the term of the request is newer than the node's current term.
     fn update_term(&mut self, term: Term) {
-        if term > self.term {
+        if term > self.election_state.term {
             self.trans_state_follower(term);
         }
     }
@@ -166,15 +171,21 @@ where
             candidate_id = req.candidate_id,
         );
 
-        let res = async {
-            self.update_term(Term::new(req.term));
-            self.role.handle_request_vote_request(self.term, req).await
+        self.update_term(Term::new(req.term));
+
+        let candidate_id = req.candidate_id;
+        let res = self
+            .role
+            .handle_request_vote_request(self.election_state.term, req)
+            .instrument(span)
+            .await;
+
+        if res.as_ref().map(|res| res.vote_granted).unwrap_or(false) {
+            self.election_state.voted_for = Some(candidate_id);
         }
-        .instrument(span)
-        .await;
 
         let id = self.id;
-        let term = self.term.get();
+        let term = self.election_state.term.get();
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
@@ -226,7 +237,7 @@ where
         .await;
 
         let id = self.id;
-        let term = self.term.get();
+        let term = self.election_state.term.get();
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
@@ -252,7 +263,7 @@ where
             }
             self.trans_state_candidate();
             self.role
-                .handle_election_timeout(self.term, &self.clients)
+                .handle_election_timeout(self.election_state.term, &self.clients)
                 .await;
         }
         .instrument(span)
@@ -279,47 +290,53 @@ where
     }
 
     fn trans_state_follower(&mut self, term: Term) {
-        let mut state = self.role.extract_state();
-        *state.term_mut() = term;
-        *state.voted_for_mut() = None;
-        self.term = state.term();
+        let state = self.role.extract_state();
+
+        self.election_state.term = term;
+        self.election_state.voted_for = None;
 
         self.role = Role::Follower {
-            follower: follower::Follower::spawn(self.conf.clone(), state, self.tx.clone()),
+            follower: follower::Follower::spawn(
+                self.conf.clone(),
+                self.election_state.term,
+                self.election_state.voted_for,
+                state,
+                self.tx.clone(),
+            ),
         };
-        tracing::info!(term = self.term.get(), "become a follower");
+        tracing::info!(term = self.election_state.term.get(), "become a follower");
     }
 
     fn trans_state_candidate(&mut self) {
-        let mut state = self.role.extract_state();
-        *state.term_mut() += 1;
-        *state.voted_for_mut() = Some(self.id);
-        self.term = state.term();
+        let state = self.role.extract_state();
+        self.election_state.term += 1;
+        self.election_state.voted_for = Some(self.id);
 
         let quorum = (self.clients.len() + 1) / 2;
         self.role = Role::Candidate {
             candidate: candidate::Candidate::spawn(
                 self.id,
                 self.conf.clone(),
+                self.election_state.term,
                 quorum,
                 state,
                 self.tx.clone(),
             ),
         };
-        tracing::info!(term = self.term.get(), "become a candidate");
+        tracing::info!(term = self.election_state.term.get(), "become a candidate");
     }
 
     fn trans_state_leader(&mut self) {
-        tracing::info!(term = self.term.get(), "become a leader");
-
         self.role = Role::Leader {
             leader: leader::Leader::spawn(
                 self.id,
                 self.conf.clone(),
+                self.election_state.term,
                 self.role.extract_state(),
                 self.sessions.clone(),
                 &self.clients,
             ),
         };
+        tracing::info!(term = self.election_state.term.get(), "become a leader");
     }
 }

@@ -5,7 +5,7 @@ use crate::{
     pb::raft::AppendEntriesRequest,
     state::log::{Log, LogIndex},
     state::{State, StateMachine},
-    types::NodeId,
+    types::{NodeId, Term},
 };
 use futures::FutureExt;
 use std::{
@@ -30,6 +30,7 @@ pub struct Replicator {
 impl Replicator {
     pub fn spawn<S, L, T>(
         id: NodeId,
+        term: Term,
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         commit_manager_notifier: CommitManagerNotifier,
@@ -47,6 +48,7 @@ impl Replicator {
         let replicator = Replicator { tx };
         let process = ReplicatorProcess::new(
             id,
+            term,
             conf,
             target_id,
             client,
@@ -69,6 +71,7 @@ impl Replicator {
 
 struct ReplicatorProcess<S, L, T> {
     id: NodeId,
+    term: Term,
     conf: Arc<LeaderConfiguration>,
     target_id: NodeId,
     client: RaftClient<T>,
@@ -87,6 +90,7 @@ where
 {
     fn new(
         id: NodeId,
+        term: Term,
         conf: Arc<LeaderConfiguration>,
         target_id: NodeId,
         client: RaftClient<T>,
@@ -96,6 +100,7 @@ where
     ) -> Self {
         ReplicatorProcess {
             id,
+            term,
             conf,
             target_id,
             client,
@@ -111,7 +116,6 @@ where
             .upgrade()
             .ok_or_else(|| AppendError::NotReadableState)?;
         let state = state.read().await;
-        let term = state.term().get();
         let log = state.log();
 
         let prev_log_index = next_index - 1;
@@ -127,7 +131,7 @@ where
 
         let append_entries = self.client.append_entries(AppendEntriesRequest {
             leader_id: self.id,
-            term,
+            term: self.term.get(),
             prev_log_index,
             prev_log_term,
             last_committed_index,
@@ -156,7 +160,7 @@ where
                     }
                     Ok(prev_log_index + (n_entries as LogIndex))
                 } else {
-                    if res.term == term {
+                    if res.term == self.term.get() {
                         Err(AppendError::InconsistentLog)
                     } else {
                         Err(AppendError::InvalidTerm)
@@ -167,11 +171,11 @@ where
     }
 
     async fn run(mut self) {
-        let (term, mut next_index) = {
+        let mut next_index = {
             let state = self.state.upgrade();
             let state = state.unwrap();
             let state = state.read().await;
-            (state.term().get(), state.log().last_index() + 1)
+            state.log().last_index() + 1
         };
         let mut match_index = 0;
         let mut wait = false;
@@ -179,7 +183,7 @@ where
         let span = tracing::info_span!(
             target: "leader::replicator", "replicator",
             id = self.id,
-            term = term,
+            term = self.term.get(),
             target_id = self.target_id,
         );
 

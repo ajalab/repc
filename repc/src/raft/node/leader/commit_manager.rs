@@ -5,7 +5,7 @@ use crate::{
         log::{Log, LogIndex},
         State, StateMachine,
     },
-    types::NodeId,
+    types::{NodeId, Term},
 };
 use bytes::Bytes;
 use futures::{future, StreamExt};
@@ -25,6 +25,7 @@ pub struct CommitManager {
 impl CommitManager {
     pub fn spawn<S, L>(
         id: NodeId,
+        term: Term,
         nodes: impl Iterator<Item = NodeId>,
         state: Weak<RwLock<State<S, L>>>,
     ) -> (Self, CommitManagerNotifier)
@@ -36,7 +37,7 @@ impl CommitManager {
         let (tx_replicated, rx_replicated) = mpsc::channel(100);
 
         let process =
-            CommitManagerProcess::new(id, tx_applied.clone(), rx_replicated, nodes, state);
+            CommitManagerProcess::new(id, term, tx_applied.clone(), rx_replicated, nodes, state);
         tokio::spawn(process.run());
 
         let commit_manager = CommitManager {
@@ -119,6 +120,7 @@ impl CommitManagerNotifier {
 
 struct CommitManagerProcess<S, L> {
     id: NodeId,
+    term: Term,
     tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
     rx_replicated: mpsc::Receiver<(NodeId, Result<LogIndex, ()>)>,
     match_indices: HashMap<NodeId, LogIndex>,
@@ -134,6 +136,7 @@ where
 {
     fn new(
         id: NodeId,
+        term: Term,
         tx_applied: broadcast::Sender<Result<Applied, CommitError>>,
         rx_replicated: mpsc::Receiver<(NodeId, Result<LogIndex, ()>)>,
         nodes: impl Iterator<Item = NodeId>,
@@ -142,6 +145,7 @@ where
         let match_indices = nodes.zip(std::iter::repeat(LogIndex::default())).collect();
         Self {
             id,
+            term,
             tx_applied,
             rx_replicated,
             match_indices,
@@ -160,7 +164,6 @@ where
             }
         };
         let state = state.as_ref().read().await;
-        let term = state.term().get();
         self.committed_index = state.last_committed();
         drop(state);
 
@@ -168,7 +171,7 @@ where
             target: "leader::commit_manager",
             "commit_manager",
             id = self.id,
-            term,
+            term = self.term.get(),
         );
         async {
             tracing::info!("started commit manager");

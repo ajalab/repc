@@ -12,14 +12,18 @@ use bytes::Bytes;
 use error::StateMachineError;
 use log::{Log, LogIndex};
 
+#[derive(PartialEq, Eq, Default, Clone)]
+pub struct ElectionState {
+    pub term: Term,
+    pub voted_for: Option<NodeId>,
+}
+
 #[derive(Clone, Default)]
 pub struct State<S, L> {
     state_machine: S,
     log: L,
     last_applied: LogIndex,
     last_committed: LogIndex,
-    voted_for: Option<NodeId>,
-    term: Term,
 }
 
 impl<S, L> State<S, L> {
@@ -29,8 +33,6 @@ impl<S, L> State<S, L> {
             log,
             last_applied: LogIndex::default(),
             last_committed: LogIndex::default(),
-            voted_for: None,
-            term: Term::default(),
         }
     }
 
@@ -44,22 +46,6 @@ impl<S, L> State<S, L> {
 
     pub fn last_applied(&self) -> LogIndex {
         self.last_applied
-    }
-
-    pub fn term(&self) -> Term {
-        self.term
-    }
-
-    pub fn term_mut(&mut self) -> &mut Term {
-        &mut self.term
-    }
-
-    pub fn voted_for(&self) -> Option<NodeId> {
-        self.voted_for
-    }
-
-    pub fn voted_for_mut(&mut self) -> &mut Option<NodeId> {
-        &mut self.voted_for
     }
 }
 

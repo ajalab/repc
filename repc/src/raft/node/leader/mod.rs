@@ -10,7 +10,7 @@ use crate::{
     pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry},
     session::{RepcClientId, Sessions},
     state::{log::Log, State, StateMachine},
-    types::NodeId,
+    types::{NodeId, Term},
 };
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt};
@@ -21,6 +21,7 @@ use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::{Instrument, Level};
 
 pub struct Leader<S, L> {
+    term: Term,
     replicators: Vec<Replicator>,
     commit_manager: CommitManager,
     state: Option<Arc<RwLock<State<S, L>>>>,
@@ -35,6 +36,7 @@ where
     pub fn spawn<T>(
         id: NodeId,
         conf: Arc<Configuration>,
+        term: Term,
         state: State<S, L>,
         sessions: Arc<Sessions>,
         clients: &HashMap<NodeId, RaftClient<T>>,
@@ -49,13 +51,14 @@ where
 
         let nodes = clients.keys().copied();
         let (commit_manager, commit_manager_notifier) =
-            CommitManager::spawn(id, nodes, Arc::downgrade(&state));
+            CommitManager::spawn(id, term, nodes, Arc::downgrade(&state));
 
         let replicators = clients
             .iter()
             .map(|(&target_id, client)| {
                 Replicator::spawn(
                     id,
+                    term,
                     leader_conf.clone(),
                     target_id,
                     commit_manager_notifier.clone(),
@@ -66,6 +69,7 @@ where
             .collect::<Vec<_>>();
 
         let leader = Leader {
+            term,
             replicators,
             commit_manager,
             state: Some(state),
@@ -107,9 +111,8 @@ where
 
         let index = {
             let mut state = self.state.as_ref().unwrap().write().await;
-            let term = state.term().get();
             let entry = LogEntry {
-                term,
+                term: self.term.get(),
                 command: Some(command),
             };
             state.append_log_entries(iter::once(entry));
