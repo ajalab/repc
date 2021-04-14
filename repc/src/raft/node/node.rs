@@ -199,6 +199,7 @@ where
             target: "role",
             "handle_request_vote_request",
             term = self.election_state.term.get(),
+            role = self.role.ident(),
         );
 
         let candidate_id = req.candidate_id;
@@ -233,6 +234,7 @@ where
             target: "role",
             "handle_request_vote_response",
             term = self.election_state.term.get(),
+            role = self.role.ident(),
         );
 
         let become_leader = self
@@ -259,6 +261,7 @@ where
             target: "role",
             "handle_append_entries_request",
             term = self.election_state.term.get(),
+            role = self.role.ident(),
         );
         let res = self
             .role
@@ -292,6 +295,7 @@ where
             target: "role",
             "handle_election_timeout",
             term = self.election_state.term.get(),
+            role = self.role.ident(),
         );
         self.role
             .handle_election_timeout(&self.clients)
@@ -310,6 +314,7 @@ where
             target: "role",
             "handle_command",
             term = self.election_state.term.get(),
+            role = self.role.ident(),
         );
         self.role
             .handle_command(command, client_id, sequence, tx)
