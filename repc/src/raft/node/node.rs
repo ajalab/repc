@@ -128,15 +128,39 @@ where
     async fn handle_message(&mut self, msg: Message) {
         match msg {
             Message::RPCRequestVoteRequest { req, tx } => {
-                self.handle_request_vote_request(req, tx).await
+                let span = tracing::debug_span!(
+                    target: "node",
+                    "handle_request_vote_request",
+                    req_term = req.term,
+                    candidate_id = req.candidate_id,
+                );
+                self.handle_request_vote_request(req, tx)
+                    .instrument(span)
+                    .await
             }
 
             Message::RPCRequestVoteResponse { res, id } => {
-                self.handle_request_vote_response(res, id).await
+                let span = tracing::debug_span!(
+                    target: "node",
+                    "handle_request_vote_response",
+                    res_term = res.term,
+                    voter_id = id,
+                );
+                self.handle_request_vote_response(res, id)
+                    .instrument(span)
+                    .await
             }
 
             Message::RPCAppendEntriesRequest { req, tx } => {
-                self.handle_append_entries_request(req, tx).await
+                let span = tracing::trace_span!(
+                    target: "node",
+                    "handle_append_entries_request",
+                    req_term = req.term,
+                    leader_id = req.leader_id,
+                );
+                self.handle_append_entries_request(req, tx)
+                    .instrument(span)
+                    .await
             }
 
             Message::ElectionTimeout => self.handle_election_timeout().await,
@@ -146,16 +170,18 @@ where
                 client_id,
                 sequence,
                 tx,
-            } => self.handle_command(command, client_id, sequence, tx).await,
+            } => {
+                let span = tracing::trace_span!(
+                    target: "node",
+                    "handle_command",
+                    client_id = u64::from(client_id),
+                    sequence = u64::from(sequence),
+                );
+                self.handle_command(command, client_id, sequence, tx)
+                    .instrument(span)
+                    .await
+            }
             _ => {}
-        }
-    }
-
-    // Update the node's term and return to Follower state,
-    // if the term of the request is newer than the node's current term.
-    fn update_term(&mut self, term: Term) {
-        if term > self.election_state.term {
-            self.trans_state_follower(term);
         }
     }
 
@@ -164,19 +190,21 @@ where
         req: RequestVoteRequest,
         tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
     ) {
-        let span = tracing::debug_span!(
-            target: "node",
-            "handle_request_vote_request",
-            req_term = req.term,
-            candidate_id = req.candidate_id,
-        );
+        let req_term = Term::new(req.term);
+        if req_term > self.election_state.term {
+            self.trans_state_follower(req_term);
+        }
 
-        self.update_term(Term::new(req.term));
+        let span = tracing::debug_span!(
+            target: "role",
+            "handle_request_vote_request",
+            term = self.election_state.term.get(),
+        );
 
         let candidate_id = req.candidate_id;
         let res = self
             .role
-            .handle_request_vote_request(self.election_state.term, req)
+            .handle_request_vote_request(req)
             .instrument(span)
             .await;
 
@@ -202,19 +230,19 @@ where
 
     async fn handle_request_vote_response(&mut self, res: RequestVoteResponse, id: NodeId) {
         let span = tracing::debug_span!(
-            target: "node",
+            target: "role",
             "handle_request_vote_response",
-            res_term = res.term,
-            voter_id = id,
+            term = self.election_state.term.get(),
         );
 
-        async {
-            if self.role.handle_request_vote_response(res, id).await {
-                self.trans_state_leader();
-            }
+        let become_leader = self
+            .role
+            .handle_request_vote_response(res, id)
+            .instrument(span)
+            .await;
+        if become_leader {
+            self.trans_state_leader();
         }
-        .instrument(span)
-        .await
     }
 
     async fn handle_append_entries_request(
@@ -222,19 +250,21 @@ where
         req: AppendEntriesRequest,
         tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
     ) {
-        let span = tracing::trace_span!(
-            target: "node",
-            "handle_append_entries_request",
-            req_term = req.term,
-            leader_id = req.leader_id,
-        );
-
-        let res = async {
-            self.update_term(Term::new(req.term));
-            self.role.handle_append_entries_request(req).await
+        let req_term = Term::new(req.term);
+        if req_term > self.election_state.term {
+            self.trans_state_follower(req_term);
         }
-        .instrument(span)
-        .await;
+
+        let span = tracing::trace_span!(
+            target: "role",
+            "handle_append_entries_request",
+            term = self.election_state.term.get(),
+        );
+        let res = self
+            .role
+            .handle_append_entries_request(req)
+            .instrument(span)
+            .await;
 
         let id = self.id;
         let term = self.election_state.term.get();
@@ -253,21 +283,20 @@ where
     }
 
     async fn handle_election_timeout(&mut self) {
-        let span = tracing::debug_span!(
-            target: "node",
-            "handle_election_timeout",
-        );
-        async {
-            if matches!(self.role, Role::Leader{ .. }) {
-                return;
-            }
-            self.trans_state_candidate();
-            self.role
-                .handle_election_timeout(self.election_state.term, &self.clients)
-                .await;
+        if matches!(self.role, Role::Leader{ .. }) {
+            return;
         }
-        .instrument(span)
-        .await;
+        self.trans_state_candidate();
+
+        let span = tracing::debug_span!(
+            target: "role",
+            "handle_election_timeout",
+            term = self.election_state.term.get(),
+        );
+        self.role
+            .handle_election_timeout(&self.clients)
+            .instrument(span)
+            .await;
     }
 
     async fn handle_command(
@@ -278,10 +307,9 @@ where
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         let span = tracing::trace_span!(
-            target: "node",
+            target: "role",
             "handle_command",
-            client_id = u64::from(client_id),
-            sequence = u64::from(sequence),
+            term = self.election_state.term.get(),
         );
         self.role
             .handle_command(command, client_id, sequence, tx)
@@ -291,7 +319,6 @@ where
 
     fn trans_state_follower(&mut self, term: Term) {
         let state = self.role.extract_state();
-
         self.election_state.term = term;
         self.election_state.voted_for = None;
 

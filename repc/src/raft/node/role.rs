@@ -6,7 +6,7 @@ use crate::{
     },
     session::RepcClientId,
     state::{log::Log, State, StateMachine},
-    types::{NodeId, Term},
+    types::NodeId,
 };
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
@@ -44,13 +44,11 @@ where
 
     pub async fn handle_request_vote_request(
         &mut self,
-        term: Term,
         req: RequestVoteRequest,
     ) -> Result<RequestVoteResponse, Box<dyn Error + Send>> {
         let span = tracing::trace_span!(
             target: "role",
             "handle_request_vote_request",
-            term = term.get(),
             role = self.to_ident(),
         );
 
@@ -114,11 +112,8 @@ where
         .await
     }
 
-    pub async fn handle_election_timeout<T>(
-        &mut self,
-        term: Term,
-        clients: &HashMap<NodeId, RaftClient<T>>,
-    ) where
+    pub async fn handle_election_timeout<T>(&mut self, clients: &HashMap<NodeId, RaftClient<T>>)
+    where
         T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
         T::Future: Send,
         <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
@@ -126,7 +121,6 @@ where
         let span = tracing::info_span!(
             target: "role",
             "handle_election_timeout",
-            term = term.get(),
             role = self.to_ident(),
         );
 
