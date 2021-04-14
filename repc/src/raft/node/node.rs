@@ -6,8 +6,7 @@ use crate::{
         RequestVoteRequest, RequestVoteResponse,
     },
     raft::message::Message,
-    session::RepcClientId,
-    session::Sessions,
+    session::{RepcClientId, Sessions},
     state::{log::Log, ElectionState, State, StateMachine},
     types::{NodeId, Term},
 };
@@ -21,39 +20,12 @@ use tracing::Instrument;
 pub struct Node<S, L, T> {
     id: NodeId,
     conf: Arc<Configuration>,
-    state: State<S, L>,
-    clients: HashMap<NodeId, RaftClient<T>>,
+    sessions: Arc<Sessions>,
+    election_state: ElectionState,
+    role: Role<S, L>,
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
-}
-
-impl<S, L, T> Node<S, L, T> {
-    pub fn new(id: NodeId, state: State<S, L>) -> Self {
-        let (tx, rx) = mpsc::channel(100);
-
-        Self {
-            id,
-            conf: Arc::default(),
-            state,
-            clients: HashMap::new(),
-            tx,
-            rx,
-        }
-    }
-
-    pub fn conf(mut self, conf: Arc<Configuration>) -> Self {
-        self.conf = conf;
-        self
-    }
-
-    pub fn clients(mut self, clients: HashMap<NodeId, RaftClient<T>>) -> Self {
-        self.clients = clients;
-        self
-    }
-
-    pub fn get_tx(&self) -> mpsc::Sender<Message> {
-        return self.tx.clone();
-    }
+    clients: HashMap<NodeId, RaftClient<T>>,
 }
 
 impl<S, L, T> Node<S, L, T>
@@ -64,55 +36,33 @@ where
     T::Future: Send,
     <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
 {
-    pub async fn run(self) {
-        let election_state = ElectionState::default();
-        let sessions = Arc::new(Sessions::default());
-        let role = Role::Follower {
-            follower: follower::Follower::spawn(
-                self.conf.clone(),
-                election_state.term,
-                election_state.voted_for,
-                self.state,
-                self.tx.clone(),
-            ),
-        };
-        let mut process = NodeProcess {
-            id: self.id,
-            conf: self.conf,
-            sessions,
-            election_state,
-            role,
-            tx: self.tx,
-            rx: self.rx,
-            clients: self.clients,
-        };
-        process.run().await
+    pub fn new(id: NodeId, conf: Configuration, state: State<S, L>) -> Self {
+        // TODO set limit from conf
+        let (tx, rx) = mpsc::channel(100);
+
+        Self {
+            id,
+            conf: Arc::new(conf),
+            sessions: Arc::default(),
+            election_state: ElectionState::default(),
+            role: Role::new(state),
+            tx,
+            rx,
+            clients: HashMap::new(),
+        }
     }
-}
 
-struct NodeProcess<S, L, T> {
-    id: NodeId,
-    conf: Arc<Configuration>,
-    sessions: Arc<Sessions>,
+    pub fn tx(&self) -> &mpsc::Sender<Message> {
+        &self.tx
+    }
 
-    election_state: ElectionState,
+    pub fn clients_mut(&mut self) -> &mut HashMap<NodeId, RaftClient<T>> {
+        &mut self.clients
+    }
 
-    role: Role<S, L>,
+    pub async fn run(mut self) {
+        self.trans_state_follower(Term::default());
 
-    tx: mpsc::Sender<Message>,
-    rx: mpsc::Receiver<Message>,
-    clients: HashMap<NodeId, RaftClient<T>>,
-}
-
-impl<S, L, T> NodeProcess<S, L, T>
-where
-    S: StateMachine + Send + Sync + 'static,
-    L: Log + Send + Sync + 'static,
-    T: GrpcService<BoxBody> + Clone + Send + Sync + 'static,
-    T::Future: Send,
-    <T::ResponseBody as http_body::Body>::Error: Into<StdError> + Send,
-{
-    async fn run(&mut self) {
         let span = tracing::info_span!(target: "node", "node", id = self.id);
         async {
             while let Some(msg) = self.rx.recv().await {

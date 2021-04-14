@@ -15,7 +15,7 @@ use crate::{
     state::{log::Log, State, StateMachine},
     types::NodeId,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 pub struct PartitionedLocalRepcGroupBuilder<S, L> {
     confs: Vec<Configuration>,
@@ -67,14 +67,14 @@ where
             .enumerate()
             .map(|(i, (conf, state))| {
                 let id = i as NodeId + 1;
-                let node = Node::new(id, state).conf(Arc::new(conf));
+                let node = Node::new(id, conf, state);
                 (id, node)
             })
             .collect();
 
         let raft_services: HashMap<_, _> = nodes
             .iter()
-            .map(|(&id, node)| (id, RaftService::new(node.get_tx())))
+            .map(|(&id, node)| (id, RaftService::new(node.tx().clone())))
             .collect();
 
         let mut raft_clients = HashMap::new();
@@ -98,17 +98,18 @@ where
 
         let repc_services: HashMap<NodeId, _> = nodes
             .iter()
-            .map(|(&i, node)| (i, RepcService::new(node.get_tx())))
+            .map(|(&i, node)| (i, RepcService::new(node.tx().clone())))
             .collect();
 
         let admin_services: HashMap<NodeId, _> = nodes
             .iter()
-            .map(|(&i, node)| (i, AdminService::new(node.get_tx())))
+            .map(|(&i, node)| (i, AdminService::new(node.tx().clone())))
             .collect();
 
-        for (id, node) in nodes.into_iter() {
+        for (id, mut node) in nodes.into_iter() {
             let clients = raft_clients.remove(&id).unwrap();
-            tokio::spawn(node.clients(clients).run());
+            *node.clients_mut() = clients;
+            tokio::spawn(node.run());
         }
 
         PartitionedLocalRepcGroupHandle {

@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 
 pub enum Role<S, L> {
+    Stopped { state: Option<State<S, L>> },
     Follower { follower: Follower<S, L> },
     Candidate { candidate: Candidate<S, L> },
     Leader { leader: Leader<S, L> },
@@ -25,8 +26,13 @@ where
     S: StateMachine,
     L: Log,
 {
+    pub fn new(state: State<S, L>) -> Self {
+        Role::Stopped { state: Some(state) }
+    }
+
     pub fn ident(&self) -> &'static str {
         match self {
+            Role::Stopped { .. } => "stopped",
             Role::Follower { .. } => "follower",
             Role::Candidate { .. } => "candidate",
             Role::Leader { .. } => "leader",
@@ -35,6 +41,7 @@ where
 
     pub fn extract_state(&mut self) -> State<S, L> {
         match self {
+            Role::Stopped { state } => state.take().unwrap(),
             Role::Follower { follower } => follower.extract_state(),
             Role::Candidate { candidate } => candidate.extract_state(),
             Role::Leader { leader } => leader.extract_state(),
