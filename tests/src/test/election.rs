@@ -1,7 +1,7 @@
 use crate::app::adder::{pb::adder_server::AdderStateMachine, AdderState};
 use crate::util::{init, partitioned_group};
 use repc::{
-    state::log::in_memory::InMemoryLog,
+    log::in_memory::InMemoryLog,
     test_util::{
         partitioned::group::PartitionedLocalRepcGroup,
         pb::raft::{AppendEntriesRequest, RequestVoteRequest, RequestVoteResponse},

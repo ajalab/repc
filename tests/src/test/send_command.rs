@@ -4,7 +4,7 @@ use crate::app::adder::{
 };
 use crate::util::{init, partitioned_group};
 use repc::{
-    state::log::in_memory::InMemoryLog,
+    log::in_memory::InMemoryLog,
     test_util::{
         partitioned::group::{PartitionedLocalRepcGroup, PartitionedLocalRepcGroupHandle},
         pb::raft::raft_server::Raft,

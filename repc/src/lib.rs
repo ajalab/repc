@@ -1,7 +1,7 @@
 pub mod codegen;
 pub mod configuration;
 pub mod group;
-mod log;
+pub mod log;
 mod pb;
 mod raft;
 mod service;

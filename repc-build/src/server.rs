@@ -86,7 +86,7 @@ fn generate_state_machine_trait_impl(service: &Service) -> TokenStream {
     let match_arms = genearte_state_machine_impl_match_arms(service);
 
     quote! {
-        impl<T> repc::codegen::StateMachine for #state_machine_name<T>
+        impl<T> repc::state_machine::StateMachine for #state_machine_name<T>
         where
             T: #trait_name,
         {
@@ -94,7 +94,7 @@ fn generate_state_machine_trait_impl(service: &Service) -> TokenStream {
                 &mut self,
                 path: &str,
                 body: &[u8],
-            ) -> Result<tonic::Response<bytes::Bytes>, repc::codegen::StateMachineError> {
+            ) -> Result<tonic::Response<bytes::Bytes>, repc::state_machine::error::StateMachineError> {
                 match path {
                     #match_arms
                 }
@@ -115,7 +115,7 @@ fn genearte_state_machine_impl_match_arms(service: &Service) -> TokenStream {
         stream.extend(arm);
     }
     stream.extend(quote! {
-        _ => Err(repc::codegen::StateMachineError::UnknownPath(path.into()))
+        _ => Err(repc::state_machine::error::StateMachineError::UnknownPath(path.into()))
     });
     stream
 }
