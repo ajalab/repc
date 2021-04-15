@@ -9,7 +9,8 @@ use crate::{
     configuration::Configuration,
     pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry},
     session::{RepcClientId, Sessions},
-    state::{log::Log, State, StateMachine},
+    state::{log::Log, State},
+    state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use bytes::{Buf, Bytes};

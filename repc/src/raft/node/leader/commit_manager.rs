@@ -3,8 +3,9 @@ use crate::{
     raft::node::error::CommandError,
     state::{
         log::{Log, LogIndex},
-        State, StateMachine,
+        State,
     },
+    state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use bytes::Bytes;

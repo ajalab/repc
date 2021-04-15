@@ -3,7 +3,8 @@ use crate::{
     pb::raft::{raft_client::RaftClient, raft_server::RaftServer},
     raft::node::Node,
     service::{raft::RaftService, repc::RepcService},
-    state::{log::in_memory::InMemoryLog, State, StateMachine},
+    state::{log::in_memory::InMemoryLog, State},
+    state_machine::StateMachine,
     types::NodeId,
 };
 use http::Uri;

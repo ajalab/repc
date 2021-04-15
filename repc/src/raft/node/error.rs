@@ -1,6 +1,6 @@
 use crate::{
     raft::node::leader::error::CommitError, session::error::SessionError,
-    state::error::StateMachineError,
+    state_machine::error::StateMachineError,
 };
 use std::{error, fmt};
 use tonic::Status;

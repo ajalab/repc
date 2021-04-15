@@ -3,7 +3,8 @@ use crate::{
     configuration::Configuration,
     pb::raft::{raft_client::RaftClient, RequestVoteRequest, RequestVoteResponse},
     raft::message::Message,
-    state::{log::Log, State, StateMachine},
+    state::{log::Log, State},
+    state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use rand::Rng;

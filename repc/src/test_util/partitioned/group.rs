@@ -12,7 +12,8 @@ use crate::{
     },
     raft::node::Node,
     service::{admin::AdminService, raft::RaftService, repc::RepcService},
-    state::{log::Log, State, StateMachine},
+    state::{log::Log, State},
+    state_machine::StateMachine,
     types::NodeId,
 };
 use std::collections::HashMap;

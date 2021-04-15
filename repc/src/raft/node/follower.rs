@@ -5,7 +5,8 @@ use crate::{
         AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
     },
     raft::message::Message,
-    state::{log::Log, State, StateMachine},
+    state::{log::Log, State},
+    state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use rand::Rng;
@@ -244,9 +245,25 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::pb::raft::LogEntry;
-    use crate::state::{log::in_memory::InMemoryLog, state_machine::test::NoopStateMachine, State};
-    use crate::types::Term;
+    use crate::{
+        pb::raft::LogEntry,
+        state::{log::in_memory::InMemoryLog, State},
+        state_machine::error::StateMachineError,
+        types::Term,
+    };
+    use bytes::Bytes;
+
+    pub struct NoopStateMachine {}
+
+    impl StateMachine for NoopStateMachine {
+        fn apply(
+            &mut self,
+            _path: &str,
+            _body: &[u8],
+        ) -> Result<tonic::Response<Bytes>, StateMachineError> {
+            Ok(tonic::Response::new(Bytes::new()))
+        }
+    }
 
     fn make_follower(
         term: Term,

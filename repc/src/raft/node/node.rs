@@ -7,7 +7,8 @@ use crate::{
     },
     raft::message::Message,
     session::{RepcClientId, Sessions},
-    state::{log::Log, ElectionState, State, StateMachine},
+    state::{log::Log, ElectionState, State},
+    state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use bytes::Bytes;

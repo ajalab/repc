@@ -5,7 +5,8 @@ use crate::{
         RequestVoteRequest, RequestVoteResponse,
     },
     session::RepcClientId,
-    state::{log::Log, State, StateMachine},
+    state::{log::Log, State},
+    state_machine::StateMachine,
     types::NodeId,
 };
 use bytes::Bytes;

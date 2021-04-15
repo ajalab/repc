@@ -1,15 +1,11 @@
-pub mod error;
 pub mod log;
-pub mod state_machine;
-
-pub use state_machine::StateMachine;
 
 use crate::{
     pb::raft::{log_entry::Command, LogEntry},
+    state_machine::{error::StateMachineError, StateMachine},
     types::{NodeId, Term},
 };
 use bytes::Bytes;
-use error::StateMachineError;
 use log::{Log, LogIndex};
 
 #[derive(PartialEq, Eq, Default, Clone)]

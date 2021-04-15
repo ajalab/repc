@@ -1,4 +1,4 @@
-pub use crate::state::{error::StateMachineError, StateMachine};
+pub use crate::state_machine::{error::StateMachineError, StateMachine};
 
 /// Handles a byte-array request body with a given handler.
 pub fn handle_request<Req, Res, H>(

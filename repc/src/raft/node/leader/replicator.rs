@@ -4,7 +4,8 @@ use crate::{
     pb::raft::raft_client::RaftClient,
     pb::raft::AppendEntriesRequest,
     state::log::{Log, LogIndex},
-    state::{State, StateMachine},
+    state::State,
+    state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use futures::FutureExt;
