@@ -2,15 +2,8 @@ use crate::{
     log::{Log, LogIndex},
     pb::raft::{log_entry::Command, LogEntry},
     state_machine::{error::StateMachineError, StateMachine},
-    types::{NodeId, Term},
 };
 use bytes::Bytes;
-
-#[derive(PartialEq, Eq, Default, Clone)]
-pub struct ElectionState {
-    pub term: Term,
-    pub voted_for: Option<NodeId>,
-}
 
 #[derive(Clone, Default)]
 pub struct State<S, L> {

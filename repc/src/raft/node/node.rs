@@ -6,9 +6,9 @@ use crate::{
         log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
         RequestVoteRequest, RequestVoteResponse,
     },
-    raft::message::Message,
+    raft::{election::Election, message::Message},
     session::{RepcClientId, Sessions},
-    state::{ElectionState, State},
+    state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},
 };
@@ -23,7 +23,7 @@ pub struct Node<S, L, T> {
     id: NodeId,
     conf: Arc<Configuration>,
     sessions: Arc<Sessions>,
-    election_state: ElectionState,
+    election: Election,
     role: Role<S, L>,
     tx: mpsc::Sender<Message>,
     rx: mpsc::Receiver<Message>,
@@ -46,7 +46,7 @@ where
             id,
             conf: Arc::new(conf),
             sessions: Arc::default(),
-            election_state: ElectionState::default(),
+            election: Election::default(),
             role: Role::new(state),
             tx,
             rx,
@@ -69,7 +69,7 @@ where
         async {
             while let Some(msg) = self.rx.recv().await {
                 let span =
-                    tracing::trace_span!(target: "node", "handle_message", term = self.election_state.term.get());
+                    tracing::trace_span!(target: "node", "handle_message", term = self.election.term.get());
                 self.handle_message(msg).instrument(span).await;
             }
         }
@@ -143,14 +143,14 @@ where
         tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
     ) {
         let req_term = Term::new(req.term);
-        if req_term > self.election_state.term {
+        if req_term > self.election.term {
             self.trans_state_follower(req_term);
         }
 
         let span = tracing::debug_span!(
             target: "role",
             "handle_request_vote_request",
-            term = self.election_state.term.get(),
+            term = self.election.term.get(),
             role = self.role.ident(),
         );
 
@@ -162,11 +162,11 @@ where
             .await;
 
         if res.as_ref().map(|res| res.vote_granted).unwrap_or(false) {
-            self.election_state.voted_for = Some(candidate_id);
+            self.election.voted_for = Some(candidate_id);
         }
 
         let id = self.id;
-        let term = self.election_state.term.get();
+        let term = self.election.term.get();
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
@@ -185,7 +185,7 @@ where
         let span = tracing::debug_span!(
             target: "role",
             "handle_request_vote_response",
-            term = self.election_state.term.get(),
+            term = self.election.term.get(),
             role = self.role.ident(),
         );
 
@@ -205,14 +205,14 @@ where
         tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
     ) {
         let req_term = Term::new(req.term);
-        if req_term > self.election_state.term {
+        if req_term > self.election.term {
             self.trans_state_follower(req_term);
         }
 
         let span = tracing::trace_span!(
             target: "role",
             "handle_append_entries_request",
-            term = self.election_state.term.get(),
+            term = self.election.term.get(),
             role = self.role.ident(),
         );
         let res = self
@@ -222,7 +222,7 @@ where
             .await;
 
         let id = self.id;
-        let term = self.election_state.term.get();
+        let term = self.election.term.get();
         tokio::spawn(async move {
             let r = tx.send(res).await;
 
@@ -246,7 +246,7 @@ where
         let span = tracing::debug_span!(
             target: "role",
             "handle_election_timeout",
-            term = self.election_state.term.get(),
+            term = self.election.term.get(),
             role = self.role.ident(),
         );
         self.role
@@ -265,7 +265,7 @@ where
         let span = tracing::trace_span!(
             target: "role",
             "handle_command",
-            term = self.election_state.term.get(),
+            term = self.election.term.get(),
             role = self.role.ident(),
         );
         self.role
@@ -276,38 +276,38 @@ where
 
     fn trans_state_follower(&mut self, term: Term) {
         let state = self.role.extract_state();
-        self.election_state.term = term;
-        self.election_state.voted_for = None;
+        self.election.term = term;
+        self.election.voted_for = None;
 
         self.role = Role::Follower {
             follower: follower::Follower::spawn(
                 self.conf.clone(),
-                self.election_state.term,
-                self.election_state.voted_for,
+                self.election.term,
+                self.election.voted_for,
                 state,
                 self.tx.clone(),
             ),
         };
-        tracing::info!(term = self.election_state.term.get(), "become a follower");
+        tracing::info!(term = self.election.term.get(), "become a follower");
     }
 
     fn trans_state_candidate(&mut self) {
         let state = self.role.extract_state();
-        self.election_state.term += 1;
-        self.election_state.voted_for = Some(self.id);
+        self.election.term += 1;
+        self.election.voted_for = Some(self.id);
 
         let quorum = (self.clients.len() + 1) / 2;
         self.role = Role::Candidate {
             candidate: candidate::Candidate::spawn(
                 self.id,
                 self.conf.clone(),
-                self.election_state.term,
+                self.election.term,
                 quorum,
                 state,
                 self.tx.clone(),
             ),
         };
-        tracing::info!(term = self.election_state.term.get(), "become a candidate");
+        tracing::info!(term = self.election.term.get(), "become a candidate");
     }
 
     fn trans_state_leader(&mut self) {
@@ -315,12 +315,12 @@ where
             leader: leader::Leader::spawn(
                 self.id,
                 self.conf.clone(),
-                self.election_state.term,
+                self.election.term,
                 self.role.extract_state(),
                 self.sessions.clone(),
                 &self.clients,
             ),
         };
-        tracing::info!(term = self.election_state.term.get(), "become a leader");
+        tracing::info!(term = self.election.term.get(), "become a leader");
     }
 }
