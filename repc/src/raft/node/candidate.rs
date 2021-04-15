@@ -1,9 +1,10 @@
 use super::deadline_clock::DeadlineClock;
 use crate::{
     configuration::Configuration,
+    log::Log,
     pb::raft::{raft_client::RaftClient, RequestVoteRequest, RequestVoteResponse},
     raft::message::Message,
-    state::{log::Log, State},
+    state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},
 };

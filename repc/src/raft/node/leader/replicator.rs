@@ -1,9 +1,9 @@
 use super::{commit_manager::CommitManagerNotifier, message::Ready};
 use crate::{
     configuration::LeaderConfiguration,
+    log::{Log, LogIndex},
     pb::raft::raft_client::RaftClient,
     pb::raft::AppendEntriesRequest,
-    state::log::{Log, LogIndex},
     state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},

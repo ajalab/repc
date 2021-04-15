@@ -1,12 +1,10 @@
-pub mod log;
-
 use crate::{
+    log::{Log, LogIndex},
     pb::raft::{log_entry::Command, LogEntry},
     state_machine::{error::StateMachineError, StateMachine},
     types::{NodeId, Term},
 };
 use bytes::Bytes;
-use log::{Log, LogIndex};
 
 #[derive(PartialEq, Eq, Default, Clone)]
 pub struct ElectionState {

@@ -1,11 +1,12 @@
 use super::deadline_clock::DeadlineClock;
 use crate::{
     configuration::Configuration,
+    log::Log,
     pb::raft::{
         AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
     },
     raft::message::Message,
-    state::{log::Log, State},
+    state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},
 };
@@ -246,10 +247,8 @@ where
 mod test {
     use super::*;
     use crate::{
-        pb::raft::LogEntry,
-        state::{log::in_memory::InMemoryLog, State},
-        state_machine::error::StateMachineError,
-        types::Term,
+        log::in_memory::InMemoryLog, pb::raft::LogEntry, state::State,
+        state_machine::error::StateMachineError, types::Term,
     };
     use bytes::Bytes;
 

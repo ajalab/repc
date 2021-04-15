@@ -7,9 +7,10 @@ use self::{commit_manager::CommitManager, replicator::Replicator};
 use super::error::CommandError;
 use crate::{
     configuration::Configuration,
+    log::Log,
     pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry},
     session::{RepcClientId, Sessions},
-    state::{log::Log, State},
+    state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},
 };

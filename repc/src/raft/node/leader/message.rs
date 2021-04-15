@@ -1,4 +1,4 @@
-use crate::{state::log::LogIndex, state_machine::error::StateMachineError};
+use crate::{log::LogIndex, state_machine::error::StateMachineError};
 use bytes::Bytes;
 
 /// A message sent from the node process to a replicator.

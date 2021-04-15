@@ -1,10 +1,8 @@
 use super::{error::CommitError, message::Applied};
 use crate::{
+    log::{Log, LogIndex},
     raft::node::error::CommandError,
-    state::{
-        log::{Log, LogIndex},
-        State,
-    },
+    state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},
 };

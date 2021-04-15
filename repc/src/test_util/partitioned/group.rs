@@ -5,6 +5,7 @@ use repc_proto::admin::{
 use super::service::raft::{error::HandleError, partition, Handle, ResponseHandle};
 use crate::{
     configuration::Configuration,
+    log::Log,
     pb::raft::{
         raft_client::RaftClient,
         raft_server::{Raft, RaftServer},
@@ -12,7 +13,7 @@ use crate::{
     },
     raft::node::Node,
     service::{admin::AdminService, raft::RaftService, repc::RepcService},
-    state::{log::Log, State},
+    state::State,
     state_machine::StateMachine,
     types::NodeId,
 };

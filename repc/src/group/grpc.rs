@@ -1,9 +1,10 @@
 use crate::{
     configuration::Configuration,
+    log::in_memory::InMemoryLog,
     pb::raft::{raft_client::RaftClient, raft_server::RaftServer},
     raft::node::Node,
     service::{raft::RaftService, repc::RepcService},
-    state::{log::in_memory::InMemoryLog, State},
+    state::State,
     state_machine::StateMachine,
     types::NodeId,
 };

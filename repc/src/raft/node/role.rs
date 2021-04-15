@@ -1,11 +1,12 @@
 use super::{candidate::Candidate, error::CommandError, follower::Follower, leader::Leader};
 use crate::{
+    log::Log,
     pb::raft::{
         log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
         RequestVoteRequest, RequestVoteResponse,
     },
     session::RepcClientId,
-    state::{log::Log, State},
+    state::State,
     state_machine::StateMachine,
     types::NodeId,
 };
