@@ -7,8 +7,9 @@ pub struct AdderState {
     n: u32,
 }
 
+#[repc::async_trait]
 impl pb::adder_server::Adder for AdderState {
-    fn add(
+    async fn add(
         &mut self,
         req: pb::AddRequest,
     ) -> Result<tonic::Response<pb::AddResponse>, tonic::Status> {

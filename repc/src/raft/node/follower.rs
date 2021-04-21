@@ -254,8 +254,9 @@ mod test {
 
     pub struct NoopStateMachine {}
 
+    #[crate::async_trait]
     impl StateMachine for NoopStateMachine {
-        fn apply(
+        async fn apply(
             &mut self,
             _path: &str,
             _body: &[u8],

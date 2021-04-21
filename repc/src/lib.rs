@@ -11,3 +11,5 @@ pub mod state_machine;
 pub mod test_util;
 mod types;
 mod util;
+
+pub use tonic::async_trait;

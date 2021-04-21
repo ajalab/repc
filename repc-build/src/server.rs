@@ -28,7 +28,8 @@ fn generate_trait_def(service: &Service, proto_path: &str) -> TokenStream {
     let methods = generate_trait_methods(service, proto_path);
 
     quote! {
-        pub trait #name {
+        #[repc::async_trait]
+        pub trait #name: Send + Sync + 'static {
             #methods
         }
     }
@@ -45,7 +46,7 @@ fn generate_trait_methods(service: &Service, proto_path: &str) -> TokenStream {
         let method = match (method.client_streaming, method.server_streaming) {
             (false, false) => {
                 quote! {
-                    fn #name(&mut self, request: #req_message) -> Result<tonic::Response<#res_message>, tonic::Status>;
+                    async fn #name(&mut self, request: #req_message) -> Result<tonic::Response<#res_message>, tonic::Status>;
                 }
             }
             _ => {
@@ -86,11 +87,12 @@ fn generate_state_machine_trait_impl(service: &Service) -> TokenStream {
     let match_arms = genearte_state_machine_impl_match_arms(service);
 
     quote! {
+        #[repc::async_trait]
         impl<T> repc::state_machine::StateMachine for #state_machine_name<T>
         where
             T: #trait_name,
         {
-            fn apply(
+            async fn apply(
                 &mut self,
                 path: &str,
                 body: &[u8],
@@ -110,7 +112,7 @@ fn genearte_state_machine_impl_match_arms(service: &Service) -> TokenStream {
         let path = util::resolve_method_path(service, method);
         let method_name = Ident::new(&method.name, Span::call_site());
         let arm = quote! {
-            #path => repc::codegen::handle_request(body, |req| self.inner.#method_name(req)),
+            #path => repc::codegen::handle_request(body, |req| self.inner.#method_name(req)).await,
         };
         stream.extend(arm);
     }

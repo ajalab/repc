@@ -229,7 +229,7 @@ where
             self.committed_index = state.commit(majority);
             tracing::trace!("new commit position: {}", self.committed_index);
 
-            while let Some(result) = state.apply() {
+            while let Some(result) = state.apply().await {
                 let index = state.last_applied();
                 tracing::trace!("applied: {}", index);
                 let _ = self.tx_applied.send(Ok(Applied { index, result }));

@@ -58,14 +58,15 @@ impl<S: StateMachine, L: Log> State<S, L> {
         self.last_committed
     }
 
-    pub fn apply(&mut self) -> Option<Result<tonic::Response<Bytes>, StateMachineError>> {
+    pub async fn apply(&mut self) -> Option<Result<tonic::Response<Bytes>, StateMachineError>> {
         if self.last_applied < self.last_committed {
             let entry = self.log.get(self.last_applied + 1)?;
             let command = entry.command.as_ref()?;
             let result = match command {
                 Command::Action(action) => self
                     .state_machine
-                    .apply(action.path.as_ref(), action.body.as_ref()),
+                    .apply(action.path.as_ref(), action.body.as_ref())
+                    .await,
                 Command::Register(_) => Ok(tonic::Response::new(Bytes::from(
                     (self.last_applied + 1).to_be_bytes().to_vec(),
                 ))),

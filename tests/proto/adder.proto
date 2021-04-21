@@ -1,14 +1,8 @@
 syntax = "proto3";
 package adder;
 
-service Adder {
-  rpc Add(AddRequest) returns (AddResponse);
-}
+service Adder { rpc Add(AddRequest) returns (AddResponse); }
 
-message AddRequest {
-    uint32 i = 1;
-}
+message AddRequest { uint32 i = 1; }
 
-message AddResponse {
-    uint32 n = 1;
-}
+message AddResponse { uint32 n = 1; }
