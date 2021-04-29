@@ -4,13 +4,13 @@ mod message;
 mod replicator;
 
 use self::{commit_manager::CommitManager, replicator::Replicator};
-use super::error::{CommandError, RequestVoteError};
+use super::error::{AppendEntriesError, CommandError, RequestVoteError};
 use crate::{
     configuration::Configuration,
     log::Log,
     pb::raft::{
-        log_entry::Command, raft_client::RaftClient, LogEntry, RequestVoteRequest,
-        RequestVoteResponse,
+        log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
+        LogEntry, RequestVoteRequest, RequestVoteResponse,
     },
     session::{RepcClientId, Sessions},
     state::State,
@@ -103,6 +103,27 @@ where
         Ok(RequestVoteResponse {
             term: self.term.get(),
             vote_granted: false,
+        })
+    }
+
+    pub async fn handle_append_entries_request(
+        &self,
+        req: AppendEntriesRequest,
+    ) -> Result<AppendEntriesResponse, AppendEntriesError> {
+        let term = self.term.get();
+        debug_assert!(req.term <= term);
+
+        if req.term == term {
+            tracing::error!("received AppendEntries request from another leader in the same term; likely split brain");
+        } else {
+            tracing::debug!(
+                reason = "request term is smaller",
+                "refused AppendEntries request",
+            );
+        }
+        Ok(AppendEntriesResponse {
+            term: self.term.get(),
+            success: false,
         })
     }
 

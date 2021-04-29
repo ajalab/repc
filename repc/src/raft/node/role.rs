@@ -93,7 +93,11 @@ where
             Role::Follower { ref mut follower } => {
                 follower.handle_append_entries_request(req).await
             }
-            _ => unimplemented!(),
+            Role::Candidate { ref candidate } => candidate.handle_append_entries_request(req).await,
+            Role::Leader { ref leader } => leader.handle_append_entries_request(req).await,
+            _ => {
+                unreachable!("role {} cannot handle AppendEntries", self.ident());
+            }
         }
     }
 

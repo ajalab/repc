@@ -68,7 +68,7 @@ where
     }
 
     pub async fn run(mut self) {
-        self.trans_state_follower(Term::default());
+        self.trans_state_follower(Term::default(), "initializing");
 
         let span = tracing::info_span!(target: "node", "node", id = self.id);
         async {
@@ -149,7 +149,7 @@ where
     ) {
         let req_term = Term::new(req.term);
         if req_term > self.election.term {
-            self.trans_state_follower(req_term);
+            self.trans_state_follower(req_term, "received a request with higher term");
         }
 
         let span = tracing::debug_span!(
@@ -211,7 +211,15 @@ where
     ) {
         let req_term = Term::new(req.term);
         if req_term > self.election.term {
-            self.trans_state_follower(req_term);
+            self.trans_state_follower(req_term, "received a request with higher term");
+        }
+
+        // invariant: req.term <= self.term
+        if req_term == self.election.term && matches!(self.role, Role::Candidate {.. }) {
+            self.trans_state_follower(
+                req_term,
+                "received a request from a new leader in the current term",
+            );
         }
 
         let span = tracing::trace_span!(
@@ -279,10 +287,14 @@ where
             .await;
     }
 
-    fn trans_state_follower(&mut self, term: Term) {
+    fn trans_state_follower(&mut self, term: Term, reason: &'static str) {
+        debug_assert!(term >= self.election.term);
+
         let state = self.role.extract_state();
-        self.election.term = term;
-        self.election.voted_for = None;
+        if term > self.election.term {
+            self.election.voted_for = None;
+            self.election.term = term;
+        }
 
         self.role = Role::Follower {
             follower: follower::Follower::spawn(
@@ -293,7 +305,7 @@ where
                 self.tx.clone(),
             ),
         };
-        tracing::info!(term = self.election.term.get(), "become a follower");
+        tracing::info!(term = self.election.term.get(), reason, "become a follower");
     }
 
     fn trans_state_candidate(&mut self) {

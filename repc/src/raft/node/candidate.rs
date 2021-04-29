@@ -1,9 +1,12 @@
 use super::deadline_clock::DeadlineClock;
-use super::error::RequestVoteError;
+use super::error::{AppendEntriesError, RequestVoteError};
 use crate::{
     configuration::Configuration,
     log::Log,
-    pb::raft::{raft_client::RaftClient, RequestVoteRequest, RequestVoteResponse},
+    pb::raft::{
+        raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+        RequestVoteResponse,
+    },
     raft::message::Message,
     state::State,
     state_machine::StateMachine,
@@ -130,6 +133,22 @@ where
             return true;
         }
         return false;
+    }
+
+    pub async fn handle_append_entries_request(
+        &self,
+        req: AppendEntriesRequest,
+    ) -> Result<AppendEntriesResponse, AppendEntriesError> {
+        debug_assert!(req.term < self.term.get());
+
+        tracing::debug!(
+            reason = "request term is smaller",
+            "refused AppendEntries request",
+        );
+        Ok(AppendEntriesResponse {
+            term: self.term.get(),
+            success: false,
+        })
     }
 
     pub async fn handle_election_timeout<T>(&mut self, clients: &HashMap<NodeId, RaftClient<T>>)
