@@ -92,7 +92,9 @@ async fn block_append_entries_request_minor() {
     assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
 }
 
+/// TODO: Fail AppendEntries after retry count reaches the limit
 #[tokio::test]
+#[ignore]
 async fn block_append_entries_request_major() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
