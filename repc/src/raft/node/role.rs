@@ -17,7 +17,7 @@ use crate::{
 };
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
-use std::{collections::HashMap, error::Error};
+use std::collections::HashMap;
 use tokio::sync::oneshot;
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 
@@ -61,7 +61,11 @@ where
     ) -> Result<RequestVoteResponse, RequestVoteError> {
         match self {
             Role::Follower { ref mut follower } => follower.handle_request_vote_request(req).await,
-            _ => unimplemented!(),
+            Role::Candidate { ref candidate } => candidate.handle_request_vote_request(req).await,
+            Role::Leader { ref leader } => leader.handle_request_vote_request(req).await,
+            _ => {
+                unreachable!("role {} cannot handle RequestVote", self.ident());
+            }
         }
     }
 

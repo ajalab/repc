@@ -4,11 +4,14 @@ mod message;
 mod replicator;
 
 use self::{commit_manager::CommitManager, replicator::Replicator};
-use super::error::CommandError;
+use super::error::{CommandError, RequestVoteError};
 use crate::{
     configuration::Configuration,
     log::Log,
-    pb::raft::{log_entry::Command, raft_client::RaftClient, LogEntry},
+    pb::raft::{
+        log_entry::Command, raft_client::RaftClient, LogEntry, RequestVoteRequest,
+        RequestVoteResponse,
+    },
     session::{RepcClientId, Sessions},
     state::State,
     state_machine::StateMachine,
@@ -87,6 +90,22 @@ where
     S: StateMachine,
     L: Log,
 {
+    pub async fn handle_request_vote_request(
+        &self,
+        _req: RequestVoteRequest,
+    ) -> Result<RequestVoteResponse, RequestVoteError> {
+        // The following invariant holds:
+        //   req.term <= self.term
+        // because the node must have updated its term
+
+        // In this term candidate must have voted to itself, so refuse another vote
+        tracing::debug!("refused vote because the leader has voted to itself");
+        Ok(RequestVoteResponse {
+            term: self.term.get(),
+            vote_granted: false,
+        })
+    }
+
     pub async fn handle_command(
         &mut self,
         command: Command,

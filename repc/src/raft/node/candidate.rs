@@ -1,4 +1,5 @@
 use super::deadline_clock::DeadlineClock;
+use super::error::RequestVoteError;
 use crate::{
     configuration::Configuration,
     log::Log,
@@ -74,6 +75,22 @@ where
             tx,
             _deadline_clock: deadline_clock,
         }
+    }
+
+    pub async fn handle_request_vote_request(
+        &self,
+        _req: RequestVoteRequest,
+    ) -> Result<RequestVoteResponse, RequestVoteError> {
+        // The following invariant holds:
+        //   req.term <= self.term
+        // because the node must have updated its term
+
+        // In this term candidate must have voted to itself, so refuse another vote
+        tracing::debug!("refused vote because the candidate has voted to itself");
+        Ok(RequestVoteResponse {
+            term: self.term.get(),
+            vote_granted: false,
+        })
     }
 
     pub async fn handle_request_vote_response(
