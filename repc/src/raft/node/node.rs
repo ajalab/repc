@@ -19,7 +19,7 @@ use crate::{
 };
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
-use std::{collections::HashMap, error, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::Instrument;
