@@ -1,3 +1,6 @@
+pub mod error;
+
+use self::error::GrpcRepcGroupError;
 use crate::{
     configuration::Configuration,
     log::in_memory::InMemoryLog,
@@ -10,7 +13,7 @@ use crate::{
 };
 use http::Uri;
 use repc_proto::repc::repc_server::RepcServer;
-use std::{collections::HashMap, error, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr};
 use tonic::transport::{Channel, Server};
 
 pub struct GrpcRepcGroup<S> {
@@ -31,7 +34,7 @@ where
         }
     }
 
-    pub async fn run(self) -> Result<(), Box<dyn error::Error>> {
+    pub async fn run(self) -> Result<(), GrpcRepcGroupError> {
         let nodes = self.conf.group.nodes.clone();
         let node_conf = nodes.get(&self.id).unwrap();
         let state = State::new(self.state_machine, InMemoryLog::default());
@@ -61,8 +64,12 @@ where
             let uri = Uri::builder()
                 .scheme("http")
                 .authority(authority.as_bytes())
-                .build()?;
-            let channel = Channel::builder(uri).connect_lazy()?;
+                .path_and_query("/")
+                .build()
+                .map_err(GrpcRepcGroupError::HttpError)?;
+            let channel = Channel::builder(uri)
+                .connect_lazy()
+                .map_err(GrpcRepcGroupError::TransportError)?;
             clients.insert(id, RaftClient::new(channel));
         }
 
