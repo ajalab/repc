@@ -111,11 +111,11 @@ where
         }
     }
 
-    async fn replicate(&mut self, next_index: LogIndex) -> Result<LogIndex, AppendError> {
+    async fn replicate(&mut self, next_index: LogIndex) -> Result<LogIndex, ReplicateError> {
         let state = self
             .state
             .upgrade()
-            .ok_or_else(|| AppendError::NotReadableState)?;
+            .ok_or_else(|| ReplicateError::NotReadableState)?;
         let state = state.read().await;
         let log = state.log();
 
@@ -146,8 +146,8 @@ where
         .await;
 
         match res {
-            Err(_) => Err(AppendError::Timeout),
-            Ok(Err(e)) => Err(AppendError::ConnectionError(e)),
+            Err(_) => Err(ReplicateError::Timeout),
+            Ok(Err(e)) => Err(ReplicateError::ConnectionError(e)),
             Ok(Ok(res)) => {
                 let res = res.into_inner();
                 if res.success {
@@ -162,9 +162,9 @@ where
                     Ok(prev_log_index + (n_entries as LogIndex))
                 } else {
                     if res.term == self.term.get() {
-                        Err(AppendError::InconsistentLog)
+                        Err(ReplicateError::InconsistentLog)
                     } else {
-                        Err(AppendError::InvalidTerm)
+                        Err(ReplicateError::InvalidTerm)
                     }
                 }
             }
@@ -222,21 +222,34 @@ where
                         next_index = m_idx + 1;
                         wait = true;
                     }
-                    Err(e) if e.retryable() => {
-                        next_index -= 1;
-                        wait = false;
-                    }
                     Err(e) => {
-                        let _ = self
-                            .commit_manager_notifier
-                            .notify_failed(self.target_id)
-                            .await;
-                        if e.graceful() {
-                            tracing::info!("shutdown Replicator gracefully: {}", e);
-                        } else {
-                            tracing::warn!("shutdown Replicator due to an unexpected error: {}", e);
+                        let error = e.to_string();
+                        let error = AsRef::<str>::as_ref(&error);
+                        match e {
+                            ReplicateError::Timeout | ReplicateError::ConnectionError(_) => {
+                                tracing::warn!(
+                                    error,
+                                    "failed to replicate logs due to an error. going to retry after backoff",
+                                );
+                                wait = true;
+                            }
+                            ReplicateError::InconsistentLog => {
+                                tracing::debug!(
+                                    error,
+                                    "failed to replicate logs due to an error. going to retry soon",
+                                );
+                                next_index -= 1;
+                                wait = false;
+                            }
+                            ReplicateError::InvalidTerm | ReplicateError::NotReadableState => {
+                                let _ = self
+                                    .commit_manager_notifier
+                                    .notify_failed(self.target_id)
+                                    .await;
+                                tracing::warn!(error, "shutdown Replicator due to an unexpected error");
+                                break;
+                            }
                         }
-                        break;
                     }
                 };
             }
@@ -246,7 +259,7 @@ where
     }
 }
 
-enum AppendError {
+enum ReplicateError {
     InconsistentLog,
     InvalidTerm,
     NotReadableState,
@@ -254,32 +267,14 @@ enum AppendError {
     ConnectionError(Status),
 }
 
-impl AppendError {
-    fn retryable(&self) -> bool {
-        match self {
-            AppendError::InconsistentLog => true,
-            _ => false,
-        }
-    }
-
-    fn graceful(&self) -> bool {
-        match self {
-            AppendError::InconsistentLog
-            | AppendError::InvalidTerm
-            | AppendError::NotReadableState => true,
-            AppendError::Timeout | AppendError::ConnectionError(_) => false,
-        }
-    }
-}
-
-impl fmt::Display for AppendError {
+impl fmt::Display for ReplicateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AppendError::InconsistentLog => write!(f, "AppendEntries request was failed due to inconsistent log entries; previous log term in the request doesn't match the actual term"),
-            AppendError::InvalidTerm => write!(f, "AppendEntries request was failed because the target node has different term"),
-            AppendError::NotReadableState => write!(f, "AppendEntries request was canceled because it couldn't load the state; likely not being a leader anymore"),
-            AppendError::Timeout => write!(f, "AppendEntries request aborted due to timeout"),
-            AppendError::ConnectionError(e) => write!(f, "AppendEntries request aborted due to a connection error: {:?}", e),
+            ReplicateError::InconsistentLog => write!(f, "AppendEntries request was failed due to inconsistent log entries; previous log term in the request doesn't match the actual term"),
+            ReplicateError::InvalidTerm => write!(f, "AppendEntries request was failed because the target node has different term"),
+            ReplicateError::NotReadableState => write!(f, "AppendEntries request was canceled because it couldn't load the state; likely not being a leader anymore"),
+            ReplicateError::Timeout => write!(f, "AppendEntries request aborted due to timeout"),
+            ReplicateError::ConnectionError(e) => write!(f, "AppendEntries request aborted due to a connection error: {:?}", e),
         }
     }
 }

@@ -290,6 +290,12 @@ where
     fn trans_state_follower(&mut self, term: Term, reason: &'static str) {
         debug_assert!(term >= self.election.term);
 
+        tracing::info!(
+            term = self.election.term.get(),
+            reason,
+            "going to become a follower"
+        );
+
         let state = self.role.extract_state();
         if term > self.election.term {
             self.election.voted_for = None;
@@ -305,10 +311,14 @@ where
                 self.tx.clone(),
             ),
         };
-        tracing::info!(term = self.election.term.get(), reason, "become a follower");
     }
 
     fn trans_state_candidate(&mut self) {
+        tracing::info!(
+            term = self.election.term.get(),
+            "going to become a candidate"
+        );
+
         let state = self.role.extract_state();
         self.election.term += 1;
         self.election.voted_for = Some(self.id);
@@ -324,10 +334,10 @@ where
                 self.tx.clone(),
             ),
         };
-        tracing::info!(term = self.election.term.get(), "become a candidate");
     }
 
     fn trans_state_leader(&mut self) {
+        tracing::info!(term = self.election.term.get(), "going to become a leader");
         self.role = Role::Leader {
             leader: leader::Leader::spawn(
                 self.id,
@@ -338,6 +348,5 @@ where
                 &self.clients,
             ),
         };
-        tracing::info!(term = self.election.term.get(), "become a leader");
     }
 }
