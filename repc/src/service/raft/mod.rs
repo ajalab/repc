@@ -37,10 +37,7 @@ impl Raft for RaftService {
 
         rx.recv()
             .await
-            .map(|res| {
-                res.map(Response::new)
-                    .map_err(|e| Status::internal(e.to_string()))
-            })
+            .map(|res| res.map(Response::new).map_err(Status::from))
             .unwrap_or_else(|| {
                 Err(Status::internal(
                     "couldn't get a response (maybe the node is going to shut down)",
@@ -66,10 +63,7 @@ impl Raft for RaftService {
 
         rx.recv()
             .await
-            .map(|res| {
-                res.map(Response::new)
-                    .map_err(|e| Status::internal(e.to_string()))
-            })
+            .map(|res| res.map(Response::new).map_err(Status::from))
             .unwrap_or_else(|| {
                 Err(Status::internal(
                     "couldn't get a response (maybe the node is going to shut down)",

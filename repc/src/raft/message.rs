@@ -1,4 +1,4 @@
-use super::node::error::CommandError;
+use super::node::error::{AppendEntriesError, CommandError, RequestVoteError};
 use crate::{
     pb::raft::{
         log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
@@ -9,13 +9,12 @@ use crate::{
 };
 use bytes::Bytes;
 use repc_proto::repc::types::Sequence;
-use std::error;
 use tokio::sync::{mpsc, oneshot};
 
 pub enum Message {
     RPCRequestVoteRequest {
         req: RequestVoteRequest,
-        tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
+        tx: mpsc::Sender<Result<RequestVoteResponse, RequestVoteError>>,
     },
 
     RPCRequestVoteResponse {
@@ -25,7 +24,7 @@ pub enum Message {
 
     RPCAppendEntriesRequest {
         req: AppendEntriesRequest,
-        tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
+        tx: mpsc::Sender<Result<AppendEntriesResponse, AppendEntriesError>>,
     },
 
     RPCAppendEntriesResponse {

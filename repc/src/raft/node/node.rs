@@ -1,4 +1,9 @@
-use super::{candidate, error::CommandError, follower, leader, role::Role};
+use super::{
+    candidate,
+    error::{AppendEntriesError, CommandError, RequestVoteError},
+    follower, leader,
+    role::Role,
+};
 use crate::{
     configuration::Configuration,
     log::Log,
@@ -140,7 +145,7 @@ where
     async fn handle_request_vote_request(
         &mut self,
         req: RequestVoteRequest,
-        tx: mpsc::Sender<Result<RequestVoteResponse, Box<dyn error::Error + Send>>>,
+        tx: mpsc::Sender<Result<RequestVoteResponse, RequestVoteError>>,
     ) {
         let req_term = Term::new(req.term);
         if req_term > self.election.term {
@@ -202,7 +207,7 @@ where
     async fn handle_append_entries_request(
         &mut self,
         req: AppendEntriesRequest,
-        tx: mpsc::Sender<Result<AppendEntriesResponse, Box<dyn error::Error + Send>>>,
+        tx: mpsc::Sender<Result<AppendEntriesResponse, AppendEntriesError>>,
     ) {
         let req_term = Term::new(req.term);
         if req_term > self.election.term {

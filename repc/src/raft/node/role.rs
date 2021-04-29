@@ -1,4 +1,9 @@
-use super::{candidate::Candidate, error::CommandError, follower::Follower, leader::Leader};
+use super::{
+    candidate::Candidate,
+    error::{AppendEntriesError, CommandError, RequestVoteError},
+    follower::Follower,
+    leader::Leader,
+};
 use crate::{
     log::Log,
     pb::raft::{
@@ -53,7 +58,7 @@ where
     pub async fn handle_request_vote_request(
         &mut self,
         req: RequestVoteRequest,
-    ) -> Result<RequestVoteResponse, Box<dyn Error + Send>> {
+    ) -> Result<RequestVoteResponse, RequestVoteError> {
         match self {
             Role::Follower { ref mut follower } => follower.handle_request_vote_request(req).await,
             _ => unimplemented!(),
@@ -79,7 +84,7 @@ where
     pub async fn handle_append_entries_request(
         &mut self,
         req: AppendEntriesRequest,
-    ) -> Result<AppendEntriesResponse, Box<dyn Error + Send>> {
+    ) -> Result<AppendEntriesResponse, AppendEntriesError> {
         match self {
             Role::Follower { ref mut follower } => {
                 follower.handle_append_entries_request(req).await

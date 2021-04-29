@@ -5,6 +5,40 @@ use crate::{
 use std::{error, fmt};
 use tonic::Status;
 
+#[derive(Debug)]
+pub enum RequestVoteError {}
+
+impl fmt::Display for RequestVoteError {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+}
+
+impl error::Error for RequestVoteError {}
+
+impl From<RequestVoteError> for Status {
+    fn from(_: RequestVoteError) -> Self {
+        Status::internal("request vote error")
+    }
+}
+
+#[derive(Debug)]
+pub enum AppendEntriesError {}
+
+impl fmt::Display for AppendEntriesError {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Ok(())
+    }
+}
+
+impl error::Error for AppendEntriesError {}
+
+impl From<AppendEntriesError> for Status {
+    fn from(_: AppendEntriesError) -> Self {
+        Status::internal("append entries error")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum CommandError {
     NotLeader,

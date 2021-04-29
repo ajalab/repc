@@ -1,4 +1,7 @@
-use super::deadline_clock::DeadlineClock;
+use super::{
+    deadline_clock::DeadlineClock,
+    error::{AppendEntriesError, RequestVoteError},
+};
 use crate::{
     configuration::Configuration,
     log::Log,
@@ -11,7 +14,7 @@ use crate::{
     types::{NodeId, Term},
 };
 use rand::Rng;
-use std::{error, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub struct Follower<S, L> {
@@ -50,14 +53,14 @@ where
     pub async fn handle_request_vote_request(
         &mut self,
         req: RequestVoteRequest,
-    ) -> Result<RequestVoteResponse, Box<dyn error::Error + Send>> {
+    ) -> Result<RequestVoteResponse, RequestVoteError> {
         self.inner.handle_request_vote_request(req).await
     }
 
     pub async fn handle_append_entries_request(
         &mut self,
         req: AppendEntriesRequest,
-    ) -> Result<AppendEntriesResponse, Box<dyn error::Error + Send>> {
+    ) -> Result<AppendEntriesResponse, AppendEntriesError> {
         let res = self.inner.handle_append_entries_request(req).await;
 
         if let Err(e) = self.deadline_clock.reset_deadline().await {
@@ -94,7 +97,7 @@ where
     async fn handle_request_vote_request(
         &mut self,
         req: RequestVoteRequest,
-    ) -> Result<RequestVoteResponse, Box<dyn error::Error + Send>> {
+    ) -> Result<RequestVoteResponse, RequestVoteError> {
         // The following invariant holds:
         //   req.term <= self.term
         // because the node must have updated its term
@@ -142,7 +145,7 @@ where
     async fn handle_append_entries_request(
         &mut self,
         req: AppendEntriesRequest,
-    ) -> Result<AppendEntriesResponse, Box<dyn error::Error + Send>> {
+    ) -> Result<AppendEntriesResponse, AppendEntriesError> {
         // The following invariant holds:
         //   req.term <= self.term
         // because the node must have updated its term
