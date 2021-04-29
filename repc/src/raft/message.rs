@@ -4,11 +4,10 @@ use crate::{
         log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
         RequestVoteResponse,
     },
-    session::RepcClientId,
     types::NodeId,
 };
 use bytes::Bytes;
-use repc_proto::repc::types::Sequence;
+use repc_proto::repc::types::{ClientId, Sequence};
 use tokio::sync::{mpsc, oneshot};
 
 pub enum Message {
@@ -34,7 +33,7 @@ pub enum Message {
 
     Command {
         command: Command,
-        client_id: RepcClientId,
+        client_id: ClientId,
         sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     },

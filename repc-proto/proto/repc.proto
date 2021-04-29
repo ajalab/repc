@@ -2,16 +2,15 @@ syntax = "proto3";
 package repc;
 
 service Repc {
-  rpc UnaryCommand(CommandRequest) returns(CommandResponse);
-  rpc ClientStreamCommand(stream CommandRequest) returns(CommandResponse);
-  rpc ServerStreamCommand(CommandRequest) returns(stream CommandResponse);
-  rpc Register(RegisterRequest) returns(RegisterResponse);
+  rpc UnaryCommand(CommandRequest) returns (CommandResponse);
+  rpc ClientStreamCommand(stream CommandRequest) returns (CommandResponse);
+  rpc ServerStreamCommand(CommandRequest) returns (stream CommandResponse);
+  rpc Register(RegisterRequest) returns (RegisterResponse);
 }
 
 message CommandRequest {
   string path = 1;
   bytes body = 2;
-  uint64 sequence = 3;
 }
 
 message CommandResponse { bytes body = 1; }

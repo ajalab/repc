@@ -3,31 +3,10 @@ pub mod error;
 use self::error::SessionError;
 use crate::{raft::node::error::CommandError, util};
 use bytes::Bytes;
-use repc_proto::repc::types::Sequence;
+use repc_proto::repc::types::{ClientId, Sequence};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tonic::Response;
-
-#[derive(Copy, Clone, Ord, Hash, PartialOrd, Eq, PartialEq, Debug)]
-pub struct RepcClientId(u64);
-
-impl Default for RepcClientId {
-    fn default() -> Self {
-        RepcClientId(u64::MAX)
-    }
-}
-
-impl From<u64> for RepcClientId {
-    fn from(id: u64) -> Self {
-        RepcClientId(id)
-    }
-}
-
-impl From<RepcClientId> for u64 {
-    fn from(id: RepcClientId) -> Self {
-        id.0
-    }
-}
 
 struct Session {
     sequence: Sequence,
@@ -36,11 +15,11 @@ struct Session {
 
 #[derive(Default)]
 pub struct Sessions {
-    sessions: RwLock<HashMap<RepcClientId, Session>>,
+    sessions: RwLock<HashMap<ClientId, Session>>,
 }
 
 impl Sessions {
-    pub async fn register(&self, client_id: RepcClientId) {
+    pub async fn register(&self, client_id: ClientId) {
         let mut sessions = self.sessions.write().await;
         sessions.insert(
             client_id,
@@ -54,7 +33,7 @@ impl Sessions {
 
     pub async fn verify(
         &self,
-        client_id: RepcClientId,
+        client_id: ClientId,
         sequence: Sequence,
     ) -> Result<Option<Result<Response<Bytes>, CommandError>>, SessionError> {
         let sessions = self.sessions.read().await;
@@ -85,5 +64,5 @@ impl Sessions {
         }
     }
 
-    pub async fn _update(&self, _client_id: RepcClientId, _sequence: Sequence) {}
+    pub async fn _update(&self, _client_id: ClientId, _sequence: Sequence) {}
 }

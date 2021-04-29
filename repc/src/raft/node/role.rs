@@ -10,13 +10,12 @@ use crate::{
         log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
         RequestVoteRequest, RequestVoteResponse,
     },
-    session::RepcClientId,
     state::State,
     state_machine::StateMachine,
     types::NodeId,
 };
 use bytes::Bytes;
-use repc_proto::repc::types::Sequence;
+use repc_proto::repc::types::{ClientId, Sequence};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
@@ -119,7 +118,7 @@ where
     pub async fn handle_command(
         &mut self,
         command: Command,
-        client_id: RepcClientId,
+        client_id: ClientId,
         sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {

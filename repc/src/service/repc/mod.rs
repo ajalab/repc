@@ -1,16 +1,15 @@
 pub mod codec;
-mod error;
 
-use self::error::RepcServiceError;
 use crate::{
     pb::raft::{log_entry::Command, Action, Register},
     raft::message::Message,
-    session::RepcClientId,
 };
 use bytes::{Buf, Bytes};
 use repc_proto::repc::{
-    metadata::METADATA_REPC_CLIENT_ID_KEY, repc_server::Repc, types::Sequence, CommandRequest,
-    CommandResponse, RegisterRequest, RegisterResponse,
+    metadata::RequestMetadata,
+    repc_server::Repc,
+    types::{ClientId, Sequence},
+    CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
@@ -28,19 +27,6 @@ impl RepcService {
     }
 }
 
-fn get_client_id<T>(request: &Request<T>) -> Result<RepcClientId, RepcServiceError> {
-    request
-        .metadata()
-        .get(METADATA_REPC_CLIENT_ID_KEY)
-        .ok_or_else(|| RepcServiceError::ClientIdNotExist)
-        .and_then(|id| id.to_str().map_err(|_| RepcServiceError::ClientIdInvalid))
-        .and_then(|id| {
-            id.parse::<u64>()
-                .map_err(|_| RepcServiceError::ClientIdInvalid)
-        })
-        .map(|id| RepcClientId::from(id))
-}
-
 #[tonic::async_trait]
 impl Repc for RepcService {
     async fn register(
@@ -50,7 +36,7 @@ impl Repc for RepcService {
         let span = tracing::trace_span!("register");
 
         let command = Command::Register(Register {});
-        self.handle_command(command, RepcClientId::default(), Sequence::default())
+        self.handle_command(command, ClientId::default(), Sequence::default())
             .instrument(span)
             .await
             .map(|response| response.map(|mut body| RegisterResponse { id: body.get_u64() }))
@@ -60,22 +46,17 @@ impl Repc for RepcService {
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        let client_id = get_client_id(&request).map_err(Status::from)?;
-        let CommandRequest {
-            path,
-            body,
-            sequence,
-        } = request.into_inner();
+        let metadata = RequestMetadata::decode(request.metadata()).map_err(Status::from)?;
+        let CommandRequest { path, body } = request.into_inner();
         let command = Command::Action(Action { path, body });
-        let sequence = Sequence::from(sequence);
 
         let span = tracing::trace_span!(
             "unary_command",
-            client_id = u64::from(client_id),
-            sequence = sequence
+            client_id = metadata.client_id.get(),
+            sequence = metadata.sequence,
         );
 
-        self.handle_command(command, client_id, sequence)
+        self.handle_command(command, metadata.client_id, metadata.sequence)
             .instrument(span)
             .await
             .map(|response| {
@@ -106,7 +87,7 @@ impl RepcService {
     async fn handle_command(
         &self,
         command: Command,
-        client_id: RepcClientId,
+        client_id: ClientId,
         sequence: Sequence,
     ) -> Result<tonic::Response<Bytes>, Status> {
         let (callback_tx, callback_rx) = oneshot::channel();

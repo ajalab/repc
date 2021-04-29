@@ -12,14 +12,14 @@ use crate::{
         log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
         LogEntry, RequestVoteRequest, RequestVoteResponse,
     },
-    session::{RepcClientId, Sessions},
+    session::Sessions,
     state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt};
-use repc_proto::repc::types::Sequence;
+use repc_proto::repc::types::{ClientId, Sequence};
 use std::{collections::HashMap, iter, sync::Arc};
 use tokio::sync::{oneshot, RwLock};
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
@@ -130,7 +130,7 @@ where
     pub async fn handle_command(
         &mut self,
         command: Command,
-        client_id: RepcClientId,
+        client_id: ClientId,
         sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
@@ -192,8 +192,7 @@ where
                 Box::new(move |result| {
                     Box::pin(async move {
                         if let Ok(response) = result.as_ref() {
-                            let client_id =
-                                RepcClientId::from(response.get_ref().clone().get_u64());
+                            let client_id = ClientId::from(response.get_ref().clone().get_u64());
                             sessions.register(client_id).await;
                         }
                         result

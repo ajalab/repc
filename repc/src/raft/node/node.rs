@@ -12,13 +12,13 @@ use crate::{
         RequestVoteRequest, RequestVoteResponse,
     },
     raft::{election::Election, message::Message},
-    session::{RepcClientId, Sessions},
+    session::Sessions,
     state::State,
     state_machine::StateMachine,
     types::{NodeId, Term},
 };
 use bytes::Bytes;
-use repc_proto::repc::types::Sequence;
+use repc_proto::repc::types::{ClientId, Sequence};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
@@ -271,7 +271,7 @@ where
     async fn handle_command(
         &mut self,
         command: Command,
-        client_id: RepcClientId,
+        client_id: ClientId,
         sequence: Sequence,
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {

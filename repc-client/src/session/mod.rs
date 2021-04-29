@@ -1,21 +1,24 @@
-pub mod encoder;
+use repc_proto::repc::types::{ClientId, Sequence};
 
 #[derive(Debug, Clone)]
 pub struct Session {
-    id: u64,
-    sequence: u64,
+    client_id: ClientId,
+    sequence: Sequence,
 }
 
 impl Session {
-    pub fn new(id: u64) -> Self {
-        Session { id, sequence: 1 }
+    pub fn new<T: Into<ClientId>>(client_id: T) -> Self {
+        Session {
+            client_id: client_id.into(),
+            sequence: 1,
+        }
     }
 
-    pub fn id(&self) -> u64 {
-        self.id
+    pub fn client_id(&self) -> ClientId {
+        self.client_id
     }
 
-    pub fn sequence(&self) -> u64 {
+    pub fn sequence(&self) -> Sequence {
         self.sequence
     }
 }
