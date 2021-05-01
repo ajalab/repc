@@ -7,9 +7,8 @@ use crate::{
 use bytes::{Buf, Bytes};
 use repc_common::repc::{
     metadata::RequestMetadata,
-    repc_server::Repc,
+    pb::{repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse},
     types::{ClientId, Sequence},
-    CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;

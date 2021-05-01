@@ -4,8 +4,11 @@ use super::error::RegisterError;
 use bytes::{Bytes, BytesMut};
 use http_body::Body as HttpBody;
 use repc_common::repc::{
-    metadata::RequestMetadata, repc_client::RepcClient as TonicRepcClient, CommandRequest,
-    CommandResponse, RegisterRequest,
+    metadata::RequestMetadata,
+    pb::{
+        repc_client::RepcClient as TonicRepcClient, CommandRequest, CommandResponse,
+        RegisterRequest,
+    },
 };
 use tonic::{body::Body, IntoRequest, Request, Response, Status};
 
