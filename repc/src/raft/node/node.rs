@@ -15,10 +15,10 @@ use crate::{
     session::Sessions,
     state::State,
     state_machine::StateMachine,
-    types::{NodeId, Term},
+    types::Term,
 };
 use bytes::Bytes;
-use repc_common::repc::types::{ClientId, Sequence};
+use repc_common::repc::types::{ClientId, NodeId, Sequence};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
@@ -68,7 +68,7 @@ where
     }
 
     pub async fn run(mut self) {
-        self.trans_state_follower(Term::default(), "initializing");
+        self.trans_state_follower(Term::default(), None, "initializing");
 
         let span = tracing::info_span!(target: "node", "node", id = self.id);
         async {
@@ -149,7 +149,7 @@ where
     ) {
         let req_term = Term::new(req.term);
         if req_term > self.election.term {
-            self.trans_state_follower(req_term, "received a request with higher term");
+            self.trans_state_follower(req_term, None, "received a request with higher term");
         }
 
         let span = tracing::debug_span!(
@@ -211,14 +211,19 @@ where
     ) {
         let req_term = Term::new(req.term);
         if req_term > self.election.term {
-            self.trans_state_follower(req_term, "received a request with higher term");
+            self.trans_state_follower(
+                req_term,
+                Some(req.leader_id),
+                "received an AppendEntries request with higher term",
+            );
         }
 
         // invariant: req.term <= self.term
         if req_term == self.election.term && matches!(self.role, Role::Candidate {.. }) {
             self.trans_state_follower(
                 req_term,
-                "received a request from a new leader in the current term",
+                Some(req.leader_id),
+                "received an AppendEntries request from a new leader in the current term",
             );
         }
 
@@ -287,7 +292,7 @@ where
             .await;
     }
 
-    fn trans_state_follower(&mut self, term: Term, reason: &'static str) {
+    fn trans_state_follower(&mut self, term: Term, leader: Option<NodeId>, reason: &'static str) {
         debug_assert!(term >= self.election.term);
 
         tracing::info!(
@@ -307,6 +312,7 @@ where
                 self.conf.clone(),
                 self.election.term,
                 self.election.voted_for,
+                leader,
                 state,
                 self.tx.clone(),
             ),

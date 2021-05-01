@@ -1,21 +1,24 @@
 use super::{
     deadline_clock::DeadlineClock,
-    error::{AppendEntriesError, RequestVoteError},
+    error::{AppendEntriesError, CommandError, RequestVoteError},
 };
 use crate::{
     configuration::Configuration,
     log::Log,
     pb::raft::{
-        AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest, RequestVoteResponse,
+        log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+        RequestVoteResponse,
     },
     raft::message::Message,
     state::State,
     state_machine::StateMachine,
-    types::{NodeId, Term},
+    types::Term,
 };
+use bytes::Bytes;
 use rand::Rng;
+use repc_common::repc::types::{ClientId, NodeId, Sequence};
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 pub struct Follower<S, L> {
     deadline_clock: DeadlineClock,
@@ -31,6 +34,7 @@ where
         conf: Arc<Configuration>,
         term: Term,
         voted_for: Option<NodeId>,
+        leader: Option<NodeId>,
         state: State<S, L>,
         tx: mpsc::Sender<Message>,
     ) -> Self {
@@ -46,7 +50,7 @@ where
 
         Follower {
             deadline_clock,
-            inner: InnerFollower::new(term, voted_for, state),
+            inner: InnerFollower::new(term, voted_for, leader, state),
         }
     }
 
@@ -70,6 +74,18 @@ where
         res
     }
 
+    pub async fn handle_command(
+        &self,
+        command: Command,
+        client_id: ClientId,
+        sequence: Sequence,
+        tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
+    ) {
+        self.inner
+            .handle_command(command, client_id, sequence, tx)
+            .await;
+    }
+
     pub fn extract_state(&mut self) -> State<S, L> {
         self.inner.extract_state()
     }
@@ -78,6 +94,7 @@ where
 struct InnerFollower<S, L> {
     term: Term,
     voted_for: Option<NodeId>,
+    leader: Option<NodeId>,
     state: Option<State<S, L>>,
 }
 
@@ -86,10 +103,16 @@ where
     S: StateMachine,
     L: Log,
 {
-    fn new(term: Term, voted_for: Option<NodeId>, state: State<S, L>) -> Self {
+    fn new(
+        term: Term,
+        voted_for: Option<NodeId>,
+        leader: Option<NodeId>,
+        state: State<S, L>,
+    ) -> Self {
         Self {
             term,
             voted_for,
+            leader,
             state: Some(state),
         }
     }
@@ -149,6 +172,8 @@ where
         // The following invariant holds:
         //   req.term <= self.term
         // because the node must have updated its term
+
+        self.leader = Some(req.leader_id);
 
         let state = self.state.as_mut().unwrap();
         let term = self.term.get();
@@ -241,6 +266,16 @@ where
         })
     }
 
+    pub async fn handle_command(
+        &self,
+        _command: Command,
+        _client_id: ClientId,
+        _sequence: Sequence,
+        tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
+    ) {
+        let _ = tx.send(Err(CommandError::NotLeader(self.leader)));
+    }
+
     fn extract_state(&mut self) -> State<S, L> {
         self.state.take().unwrap()
     }
@@ -271,12 +306,13 @@ mod test {
     fn make_follower(
         term: Term,
         voted_for: Option<NodeId>,
+        leader: Option<NodeId>,
         log: impl Into<InMemoryLog>,
     ) -> InnerFollower<NoopStateMachine, InMemoryLog> {
         let state_machine = NoopStateMachine {};
         let state = State::new(state_machine, log.into());
 
-        InnerFollower::new(term, voted_for, state)
+        InnerFollower::new(term, voted_for, leader, state)
     }
 
     fn log_entry(term: Term) -> LogEntry {
@@ -290,7 +326,7 @@ mod test {
     async fn refuse_request_vote_invalid_term() {
         let term = Term::new(10);
         let log = vec![];
-        let mut follower = make_follower(term, None, log);
+        let mut follower = make_follower(term, None, None, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {
@@ -312,7 +348,7 @@ mod test {
         let term = Term::new(10);
         let log = vec![];
         let candidate_id = 2;
-        let mut follower = make_follower(term, Some(candidate_id), log);
+        let mut follower = make_follower(term, Some(candidate_id), None, log);
 
         let req = RequestVoteRequest {
             term: term.get(),
@@ -333,7 +369,7 @@ mod test {
         let term = Term::new(10);
         let last_log_index = 1;
         let log = vec![log_entry(term); last_log_index as usize];
-        let mut follower = make_follower(term, None, log);
+        let mut follower = make_follower(term, None, None, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {
@@ -355,7 +391,7 @@ mod test {
         let term = Term::new(10);
         let last_log_index = 2;
         let log = vec![log_entry(term); last_log_index as usize];
-        let mut follower = make_follower(term, None, log);
+        let mut follower = make_follower(term, None, None, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {
@@ -377,7 +413,7 @@ mod test {
         let term = Term::new(10);
         let last_log_index = 2;
         let log = vec![log_entry(term); last_log_index as usize];
-        let mut follower = make_follower(term, None, log);
+        let mut follower = make_follower(term, None, None, log);
 
         let candidate_id = 2;
         let req = RequestVoteRequest {

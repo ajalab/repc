@@ -1,5 +1,6 @@
-use repc_common::admin::pb::{
-    admin_server::Admin, ForceElectionTimeoutRequest, ForceElectionTimeoutResponse,
+use repc_common::{
+    admin::pb::{admin_server::Admin, ForceElectionTimeoutRequest, ForceElectionTimeoutResponse},
+    repc::types::NodeId,
 };
 
 use super::service::raft::{error::HandleError, partition, Handle, ResponseHandle};
@@ -15,7 +16,6 @@ use crate::{
     service::{admin::AdminService, raft::RaftService, repc::RepcService},
     state::State,
     state_machine::StateMachine,
-    types::NodeId,
 };
 use std::collections::HashMap;
 

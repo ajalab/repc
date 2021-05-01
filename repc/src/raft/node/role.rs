@@ -12,10 +12,9 @@ use crate::{
     },
     state::State,
     state_machine::StateMachine,
-    types::NodeId,
 };
 use bytes::Bytes;
-use repc_common::repc::types::{ClientId, Sequence};
+use repc_common::repc::types::{ClientId, NodeId, Sequence};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
@@ -123,13 +122,23 @@ where
         tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
     ) {
         match self {
+            Role::Follower { ref follower } => {
+                follower
+                    .handle_command(command, client_id, sequence, tx)
+                    .await;
+            }
+            Role::Candidate { ref candidate } => {
+                candidate
+                    .handle_command(command, client_id, sequence, tx)
+                    .await;
+            }
             Role::Leader { ref mut leader } => {
                 leader
                     .handle_command(command, client_id, sequence, tx)
                     .await;
             }
             _ => {
-                let _ = tx.send(Err(CommandError::NotLeader));
+                let _ = tx.send(Err(CommandError::NotLeader(None)));
             }
         }
     }

@@ -1,13 +1,10 @@
 use super::node::error::{AppendEntriesError, CommandError, RequestVoteError};
-use crate::{
-    pb::raft::{
-        log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
-        RequestVoteResponse,
-    },
-    types::NodeId,
+use crate::pb::raft::{
+    log_entry::Command, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
 };
 use bytes::Bytes;
-use repc_common::repc::types::{ClientId, Sequence};
+use repc_common::repc::types::{ClientId, NodeId, Sequence};
 use tokio::sync::{mpsc, oneshot};
 
 pub enum Message {

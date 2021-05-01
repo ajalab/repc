@@ -2,18 +2,17 @@ pub mod codec;
 
 use crate::{
     pb::raft::{log_entry::Command, Action, Register},
-    raft::message::Message,
+    raft::{message::Message, node::error::CommandError},
 };
 use bytes::{Buf, Bytes};
 use repc_common::repc::{
-    metadata::RequestMetadata,
+    metadata::request::RequestMetadata,
     pb::{repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse},
     types::{ClientId, Sequence},
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
-use tracing::Instrument;
 
 #[derive(Clone)]
 pub struct RepcService {
@@ -32,37 +31,33 @@ impl Repc for RepcService {
         &self,
         _request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
-        let span = tracing::trace_span!("register");
-
         let command = Command::Register(Register {});
         self.handle_command(command, ClientId::default(), Sequence::default())
-            .instrument(span)
             .await
             .map(|response| response.map(|mut body| RegisterResponse { id: body.get_u64() }))
+            .map_err(Status::from)
     }
 
     async fn unary_command(
         &self,
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
-        let metadata = RequestMetadata::decode(request.metadata()).map_err(Status::from)?;
+        let metadata = match RequestMetadata::decode(request.metadata()) {
+            Ok(metadata) => metadata,
+            Err(e) => return Err(Status::from(CommandError::MetadataDecodeError(e))),
+        };
+
         let CommandRequest { path, body } = request.into_inner();
         let command = Command::Action(Action { path, body });
 
-        let span = tracing::trace_span!(
-            "unary_command",
-            client_id = metadata.client_id.get(),
-            sequence = metadata.sequence,
-        );
-
         self.handle_command(command, metadata.client_id, metadata.sequence)
-            .instrument(span)
             .await
             .map(|response| {
                 response.map(|body| CommandResponse {
                     body: body.to_vec(),
                 })
             })
+            .map_err(Status::from)
     }
 
     async fn client_stream_command(
@@ -88,7 +83,7 @@ impl RepcService {
         command: Command,
         client_id: ClientId,
         sequence: Sequence,
-    ) -> Result<tonic::Response<Bytes>, Status> {
+    ) -> Result<tonic::Response<Bytes>, CommandError> {
         let (callback_tx, callback_rx) = oneshot::channel();
         let command = Message::Command {
             command,
@@ -100,14 +95,11 @@ impl RepcService {
         if self.tx.send(command).await.is_ok() {
             match callback_rx.await {
                 Ok(Ok(response)) => Ok(response),
-                Ok(Err(e)) => Err(Status::from(e)),
-                Err(e) => Err(Status::internal(format!(
-                    "channel to the node process has been closed: {}",
-                    e
-                ))),
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err(CommandError::Terminated),
             }
         } else {
-            Err(Status::internal("terminated"))
+            Err(CommandError::Closed)
         }
     }
 }

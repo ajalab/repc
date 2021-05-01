@@ -1,4 +1,4 @@
-use crate::types::NodeId;
+use repc_common::repc::types::NodeId;
 use std::{collections::HashSet, error, fmt};
 use tonic::Status;
 

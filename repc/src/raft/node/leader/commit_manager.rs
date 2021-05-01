@@ -4,10 +4,11 @@ use crate::{
     raft::node::error::CommandError,
     state::State,
     state_machine::StateMachine,
-    types::{NodeId, Term},
+    types::Term,
 };
 use bytes::Bytes;
 use futures::{future, StreamExt};
+use repc_common::repc::types::NodeId;
 use std::{
     collections::{HashMap, HashSet},
     sync::Weak,
@@ -86,7 +87,7 @@ impl CommitManagerSubscription {
             })
             .next()
             .await
-            .unwrap_or_else(|| Err(CommandError::NotLeader))
+            .unwrap_or_else(|| Err(CommandError::CommitAborted))
     }
 }
 

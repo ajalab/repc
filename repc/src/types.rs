@@ -3,8 +3,6 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-pub type NodeId = u32;
-
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Term(NonZeroU64);
 

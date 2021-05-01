@@ -9,10 +9,9 @@ use crate::{
     service::{raft::RaftService, repc::RepcService},
     state::State,
     state_machine::StateMachine,
-    types::NodeId,
 };
 use http::Uri;
-use repc_common::repc::pb::repc_server::RepcServer;
+use repc_common::repc::{types::NodeId, pb::repc_server::RepcServer};
 use std::{collections::HashMap, net::SocketAddr};
 use tonic::transport::{Channel, Server};
 

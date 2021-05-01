@@ -1,6 +1,7 @@
 mod writer;
 
-use crate::types::{NodeId, Term};
+use crate::types::Term;
+use repc_common::repc::types::NodeId;
 
 #[derive(PartialEq, Eq, Default, Clone)]
 pub struct Election {

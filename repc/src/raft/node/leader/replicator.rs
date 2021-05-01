@@ -6,9 +6,10 @@ use crate::{
     pb::raft::AppendEntriesRequest,
     state::State,
     state_machine::StateMachine,
-    types::{NodeId, Term},
+    types::Term,
 };
 use futures::FutureExt;
+use repc_common::repc::types::NodeId;
 use std::{
     fmt,
     sync::{Arc, Weak},

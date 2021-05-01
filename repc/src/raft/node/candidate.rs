@@ -1,23 +1,25 @@
 use super::deadline_clock::DeadlineClock;
-use super::error::{AppendEntriesError, RequestVoteError};
+use super::error::{AppendEntriesError, CommandError, RequestVoteError};
 use crate::{
     configuration::Configuration,
     log::Log,
     pb::raft::{
-        raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
-        RequestVoteResponse,
+        log_entry::Command, raft_client::RaftClient, AppendEntriesRequest, AppendEntriesResponse,
+        RequestVoteRequest, RequestVoteResponse,
     },
     raft::message::Message,
     state::State,
     state_machine::StateMachine,
-    types::{NodeId, Term},
+    types::Term,
 };
+use bytes::Bytes;
 use rand::Rng;
+use repc_common::repc::types::{ClientId, NodeId, Sequence};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::Instrument;
 
@@ -200,6 +202,16 @@ where
                 .instrument(span),
             );
         }
+    }
+
+    pub async fn handle_command(
+        &self,
+        _command: Command,
+        _client_id: ClientId,
+        _sequence: Sequence,
+        tx: oneshot::Sender<Result<tonic::Response<Bytes>, CommandError>>,
+    ) {
+        let _ = tx.send(Err(CommandError::NotLeader(Some(self.id))));
     }
 
     pub fn extract_state(&mut self) -> State<S, L> {
