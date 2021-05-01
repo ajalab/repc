@@ -5,7 +5,7 @@ use crate::{
     raft::message::Message,
 };
 use bytes::{Buf, Bytes};
-use repc_proto::repc::{
+use repc_common::repc::{
     metadata::RequestMetadata,
     repc_server::Repc,
     types::{ClientId, Sequence},

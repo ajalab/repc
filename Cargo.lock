@@ -666,7 +666,7 @@ dependencies = [
  "http-body",
  "prost",
  "rand",
- "repc-proto",
+ "repc-common",
  "serde",
  "tokio",
  "tokio-stream",
@@ -696,12 +696,12 @@ dependencies = [
  "bytes",
  "http-body",
  "prost",
- "repc-proto",
+ "repc-common",
  "tonic",
 ]
 
 [[package]]
-name = "repc-proto"
+name = "repc-common"
 version = "0.1.0"
 dependencies = [
  "prost",
@@ -813,7 +813,7 @@ dependencies = [
  "repc",
  "repc-build",
  "repc-client",
- "repc-proto",
+ "repc-common",
  "tokio",
  "tonic",
  "tracing-subscriber",

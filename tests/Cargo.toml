@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 repc = { path = "../repc" }
 repc-client = { path = "../repc-client" }
-repc-proto = { path = "../repc-proto" }
+repc-common = { path = "../repc-common" }
 tonic = "0.4"
 prost = "0.7"
 bytes = "1.0"

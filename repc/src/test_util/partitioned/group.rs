@@ -1,4 +1,4 @@
-use repc_proto::admin::{
+use repc_common::admin::{
     admin_server::Admin, ForceElectionTimeoutRequest, ForceElectionTimeoutResponse,
 };
 

@@ -3,7 +3,7 @@ pub mod error;
 use self::error::SessionError;
 use crate::{raft::node::error::CommandError, util};
 use bytes::Bytes;
-use repc_proto::repc::types::{ClientId, Sequence};
+use repc_common::repc::types::{ClientId, Sequence};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tonic::Response;

@@ -6,7 +6,7 @@ use crate::{
     util::{init, partitioned_group},
 };
 use repc::{log::in_memory::InMemoryLog, test_util::partitioned::group::PartitionedLocalRepcGroup};
-use repc_proto::repc::repc_server::RepcServer;
+use repc_common::repc::repc_server::RepcServer;
 
 #[tokio::test]
 async fn register() {

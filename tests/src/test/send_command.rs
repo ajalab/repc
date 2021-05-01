@@ -11,7 +11,7 @@ use repc::{
         service::repc::RepcService,
     },
 };
-use repc_proto::repc::repc_server::RepcServer;
+use repc_common::repc::repc_server::RepcServer;
 
 async fn make_1_leader<R: Raft + Clone>(
     handle: &mut PartitionedLocalRepcGroupHandle<R>,

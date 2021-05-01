@@ -12,7 +12,7 @@ use crate::{
     types::NodeId,
 };
 use http::Uri;
-use repc_proto::repc::repc_server::RepcServer;
+use repc_common::repc::repc_server::RepcServer;
 use std::{collections::HashMap, net::SocketAddr};
 use tonic::transport::{Channel, Server};
 

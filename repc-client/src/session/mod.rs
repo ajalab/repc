@@ -1,4 +1,4 @@
-use repc_proto::repc::types::{ClientId, Sequence};
+use repc_common::repc::types::{ClientId, Sequence};
 
 #[derive(Debug, Clone)]
 pub struct Session {

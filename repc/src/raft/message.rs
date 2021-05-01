@@ -7,7 +7,7 @@ use crate::{
     types::NodeId,
 };
 use bytes::Bytes;
-use repc_proto::repc::types::{ClientId, Sequence};
+use repc_common::repc::types::{ClientId, Sequence};
 use tokio::sync::{mpsc, oneshot};
 
 pub enum Message {

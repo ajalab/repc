@@ -15,7 +15,7 @@ use crate::{
     types::NodeId,
 };
 use bytes::Bytes;
-use repc_proto::repc::types::{ClientId, Sequence};
+use repc_common::repc::types::{ClientId, Sequence};
 use std::collections::HashMap;
 use tokio::sync::oneshot;
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
