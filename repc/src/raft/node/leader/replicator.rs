@@ -9,7 +9,7 @@ use crate::{
     types::Term,
 };
 use futures::FutureExt;
-use repc_common::repc::types::NodeId;
+use repc_common::types::NodeId;
 use std::{
     fmt,
     sync::{Arc, Weak},

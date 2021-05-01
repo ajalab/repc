@@ -3,9 +3,9 @@ use crate::session::Session;
 use super::error::RegisterError;
 use bytes::{Bytes, BytesMut};
 use http_body::Body as HttpBody;
-use repc_common::repc::{
+use repc_common::{
     metadata::request::RequestMetadata,
-    pb::{
+    pb::repc::{
         repc_client::RepcClient as TonicRepcClient, CommandRequest, CommandResponse,
         RegisterRequest,
     },

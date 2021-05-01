@@ -3,7 +3,7 @@ use super::{
     error::MetadataDecodeError,
     key::{METADATA_REPC_CLIENT_ID_KEY, METADATA_REPC_SEQUENCE_KEY},
 };
-use crate::repc::types::{ClientId, Sequence};
+use crate::types::{ClientId, Sequence};
 use tonic::metadata::{MetadataMap, MetadataValue};
 
 pub struct RequestMetadata {

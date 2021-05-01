@@ -4,7 +4,7 @@ use crate::pb::raft::{
     RequestVoteResponse,
 };
 use bytes::Bytes;
-use repc_common::repc::types::{ClientId, NodeId, Sequence};
+use repc_common::types::{ClientId, NodeId, Sequence};
 use tokio::sync::{mpsc, oneshot};
 
 pub enum Message {

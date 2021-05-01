@@ -2,7 +2,7 @@ use crate::{
     raft::node::leader::error::CommitError, session::error::SessionError,
     state_machine::error::StateMachineError,
 };
-use repc_common::repc::{
+use repc_common::{
     metadata::{error::MetadataDecodeError, status::StatusMetadata},
     types::NodeId,
 };

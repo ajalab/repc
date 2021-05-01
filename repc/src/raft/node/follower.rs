@@ -16,7 +16,7 @@ use crate::{
 };
 use bytes::Bytes;
 use rand::Rng;
-use repc_common::repc::types::{ClientId, NodeId, Sequence};
+use repc_common::types::{ClientId, NodeId, Sequence};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 

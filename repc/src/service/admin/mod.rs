@@ -1,5 +1,5 @@
 use crate::raft::message::Message;
-use repc_common::admin::pb::{
+use repc_common::pb::admin::{
     admin_server::Admin, ForceElectionTimeoutRequest, ForceElectionTimeoutResponse,
 };
 use tokio::sync::mpsc;

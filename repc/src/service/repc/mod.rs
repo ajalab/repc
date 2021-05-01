@@ -5,9 +5,11 @@ use crate::{
     raft::{message::Message, node::error::CommandError},
 };
 use bytes::{Buf, Bytes};
-use repc_common::repc::{
+use repc_common::{
     metadata::request::RequestMetadata,
-    pb::{repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse},
+    pb::repc::{
+        repc_server::Repc, CommandRequest, CommandResponse, RegisterRequest, RegisterResponse,
+    },
     types::{ClientId, Sequence},
 };
 use tokio::sync::{mpsc, oneshot};

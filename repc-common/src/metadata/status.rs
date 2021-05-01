@@ -1,5 +1,5 @@
 use super::{decode_ascii_option, error::MetadataDecodeError, key::METADATA_REPC_FALLBACK};
-use crate::repc::types::NodeId;
+use crate::types::NodeId;
 use tonic::metadata::{MetadataMap, MetadataValue};
 
 pub struct StatusMetadata {

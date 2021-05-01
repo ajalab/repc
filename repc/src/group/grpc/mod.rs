@@ -11,7 +11,7 @@ use crate::{
     state_machine::StateMachine,
 };
 use http::Uri;
-use repc_common::repc::{types::NodeId, pb::repc_server::RepcServer};
+use repc_common::{pb::repc::repc_server::RepcServer, types::NodeId};
 use std::{collections::HashMap, net::SocketAddr};
 use tonic::transport::{Channel, Server};
 

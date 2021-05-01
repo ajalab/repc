@@ -19,7 +19,7 @@ use crate::{
 };
 use bytes::{Buf, Bytes};
 use futures::{future::BoxFuture, FutureExt};
-use repc_common::repc::types::{ClientId, NodeId, Sequence};
+use repc_common::types::{ClientId, NodeId, Sequence};
 use std::{collections::HashMap, iter, sync::Arc};
 use tokio::sync::{oneshot, RwLock};
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};

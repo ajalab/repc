@@ -1,6 +1,6 @@
 use repc_common::{
-    admin::pb::{admin_server::Admin, ForceElectionTimeoutRequest, ForceElectionTimeoutResponse},
-    repc::types::NodeId,
+    pb::admin::{admin_server::Admin, ForceElectionTimeoutRequest, ForceElectionTimeoutResponse},
+    types::NodeId,
 };
 
 use super::service::raft::{error::HandleError, partition, Handle, ResponseHandle};
