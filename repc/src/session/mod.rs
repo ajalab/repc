@@ -1,9 +1,12 @@
 pub mod error;
 
 use self::error::SessionError;
-use crate::{raft::node::error::CommandError, util};
+use crate::raft::node::error::CommandError;
 use bytes::Bytes;
-use repc_common::types::{ClientId, Sequence};
+use repc_common::{
+    types::{ClientId, Sequence},
+    util::clone_response,
+};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 use tonic::Response;
@@ -50,7 +53,7 @@ impl Sessions {
                     tracing::trace!("duplicated request");
                     // TODO: Remove clone
                     Ok(Some(match response {
-                        Ok(res) => Ok(util::clone_response(res)),
+                        Ok(res) => Ok(clone_response(res)),
                         Err(e) => Err(e.clone()),
                     }))
                 }

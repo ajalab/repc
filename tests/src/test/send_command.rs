@@ -8,14 +8,11 @@ use repc::{
     test_util::{
         partitioned::group::{PartitionedLocalRepcGroup, PartitionedLocalRepcGroupHandle},
         pb::raft::raft_server::Raft,
-        service::repc::RepcService,
     },
 };
 use repc_common::pb::repc::repc_server::RepcServer;
 
-async fn make_1_leader<R: Raft + Clone>(
-    handle: &mut PartitionedLocalRepcGroupHandle<R>,
-) -> AdderClient<RepcServer<RepcService>> {
+async fn make_1_leader<R: Raft + Clone>(handle: &mut PartitionedLocalRepcGroupHandle<R>) {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
@@ -32,16 +29,6 @@ async fn make_1_leader<R: Raft + Clone>(
         h12.expect_append_entries_success(),
         h13.expect_append_entries_success(),
     );
-
-    // Register
-    let service = handle.repc_service(1).clone();
-    futures::join!(
-        AdderClient::register(RepcServer::new(service)),
-        h12.expect_append_entries_success(),
-        h13.expect_append_entries_success(),
-    )
-    .0
-    .expect("should be ok")
 }
 
 #[tokio::test]
@@ -53,7 +40,16 @@ async fn healthy() {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
-    let mut client = make_1_leader(&mut handle).await;
+    make_1_leader(&mut handle).await;
+    let mut client = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
+
+    let res = futures::join!(
+        client.get_mut().register(),
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    )
+    .0;
+    assert!(res.is_ok());
 
     let res = futures::join!(
         client.add(AddRequest { i: 10 }),
@@ -81,7 +77,16 @@ async fn block_append_entries_request_minor() {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
-    let mut client = make_1_leader(&mut handle).await;
+    make_1_leader(&mut handle).await;
+    let mut client = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
+
+    let res = futures::join!(
+        client.get_mut().register(),
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    )
+    .0;
+    assert!(res.is_ok());
 
     let res = futures::join!(
         client.add(AddRequest { i: 10 }),
@@ -103,7 +108,16 @@ async fn block_append_entries_request_major() {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
-    let mut client = make_1_leader(&mut handle).await;
+    make_1_leader(&mut handle).await;
+    let mut client = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
+
+    let res = futures::join!(
+        client.get_mut().register(),
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    )
+    .0;
+    assert!(res.is_ok());
 
     // Majority of nodes fail
     let res = futures::join!(

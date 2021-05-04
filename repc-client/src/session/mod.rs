@@ -2,8 +2,8 @@ use repc_common::types::{ClientId, Sequence};
 
 #[derive(Debug, Clone)]
 pub struct Session {
-    client_id: ClientId,
-    sequence: Sequence,
+    pub client_id: ClientId,
+    pub sequence: Sequence,
 }
 
 impl Session {
@@ -12,13 +12,5 @@ impl Session {
             client_id: client_id.into(),
             sequence: 1,
         }
-    }
-
-    pub fn client_id(&self) -> ClientId {
-        self.client_id
-    }
-
-    pub fn sequence(&self) -> Sequence {
-        self.sequence
     }
 }

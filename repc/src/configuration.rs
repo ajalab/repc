@@ -1,7 +1,6 @@
 use repc_common::types::NodeId;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::net::IpAddr;
+use std::{collections::HashMap, net::IpAddr};
 
 const LEADER_HEARTBEAT_TIMEOUT_MILLIS: u64 = 500;
 const LEADER_WAIT_APPEND_ENTRIES_RESPONSE_TIMEOUT_MILLIS: u64 = 500;

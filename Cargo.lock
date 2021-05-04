@@ -694,9 +694,11 @@ name = "repc-client"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "http",
  "http-body",
  "prost",
  "repc-common",
+ "serde",
  "tonic",
 ]
 

@@ -1,3 +1,4 @@
+/*
 use crate::{
     app::adder::{
         pb::{adder_client::AdderClient, adder_server::AdderStateMachine},
@@ -28,12 +29,19 @@ async fn register() {
     handle.expect_append_entries_success(1, 3).await;
 
     // Register
-    let service = handle.repc_service(1).clone();
+    // let service = handle.repc_service(1).clone();
+    let client = AdderClient::with_services(
+        handle
+            .repc_services()
+            .map(|(&id, s)| (id, RepcServer::new(s.clone()))),
+    );
     futures::join!(
-        AdderClient::register(RepcServer::new(service)),
+        client.add(AddRequest { i: 20 }),
         h12.expect_append_entries_success(),
         h13.expect_append_entries_success(),
     )
     .0
     .expect("should be ok");
 }
+
+*/

@@ -34,7 +34,8 @@ impl RequestMetadata {
     }
 
     pub fn decode_client_id(metadata: &MetadataMap) -> Result<ClientId, MetadataDecodeError> {
-        decode_ascii::<u64>(metadata, METADATA_REPC_CLIENT_ID_KEY).map(ClientId::from)
+        let key = METADATA_REPC_CLIENT_ID_KEY;
+        decode_ascii::<u64>(metadata, key).map(ClientId::from)
     }
 
     pub fn decode_sequence(metadata: &MetadataMap) -> Result<Sequence, MetadataDecodeError> {

@@ -114,11 +114,12 @@ impl From<CommandError> for Status {
             CommandError::Closed => Code::Unavailable,
         };
 
-        let fallback = match e {
-            CommandError::NotLeader(id) => id,
+        let retry = match e {
+            CommandError::NotLeader(id) => Some(id),
+            CommandError::CommitError(_) => Some(None),
             _ => None,
         };
-        let metadata = StatusMetadata { fallback };
+        let metadata = StatusMetadata { retry };
 
         let message = e.to_string();
         let mut status = Status::new(code, message);

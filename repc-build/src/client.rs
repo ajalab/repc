@@ -7,7 +7,8 @@ pub fn generate(service: &Service, proto_path: &str) -> TokenStream {
     let mod_name = quote::format_ident!("{}_client", util::camel_to_snake(&service.name));
     let type_defs = generate_type_defs();
     let client_def = generate_client_def(service);
-    let client_impl = generate_client_impl(service, proto_path);
+    let client_impl = generate_client_impl(service);
+    let client_service_impl = generate_client_service_impl(service, proto_path);
     quote! {
         pub mod #mod_name {
             #type_defs
@@ -15,6 +16,8 @@ pub fn generate(service: &Service, proto_path: &str) -> TokenStream {
             #client_def
 
             #client_impl
+
+            #client_service_impl
         }
     }
 }
@@ -24,8 +27,7 @@ fn generate_type_defs() -> TokenStream {
         type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
         use repc_client::{
             RepcClient,
-            error::RegisterError,
-            codegen::{TonicBody, HttpBody}
+            codegen::{TonicBody, HttpBody},
         };
     }
 }
@@ -34,15 +36,28 @@ fn generate_client_def(service: &Service) -> TokenStream {
     let name = resolve_client_name(service);
     quote! {
         pub struct #name<T> {
-            inner: repc_client::RepcClient<T>,
+            inner: RepcClient<T>,
         }
     }
 }
 
-fn generate_client_impl(service: &Service, proto_path: &str) -> TokenStream {
+fn generate_client_impl(service: &Service) -> TokenStream {
+    // TODO: Remove this. This is for testing use - get the inner client to perform client registration.
     let name = resolve_client_name(service);
-    let client_register_method = generate_client_register_method();
-    let client_proto_methods = generate_client_proto_methods(service, proto_path);
+    quote! {
+        impl<T> #name<T>
+        {
+            pub fn get_mut(&mut self) -> &mut RepcClient<T> {
+                &mut self.inner
+            }
+        }
+    }
+}
+
+fn generate_client_service_impl(service: &Service, proto_path: &str) -> TokenStream {
+    let name = resolve_client_name(service);
+    let client_method_new = generate_client_method_new();
+    let client_methods_proto = generate_client_methods_proto(service, proto_path);
     quote! {
         impl<T> #name<T>
         where
@@ -51,26 +66,24 @@ fn generate_client_impl(service: &Service, proto_path: &str) -> TokenStream {
             T::Error: Into<StdError>,
             <T::ResponseBody as HttpBody>::Error: Into<StdError> + Send,
         {
-            #client_register_method
+            #client_method_new
 
-            #client_proto_methods
+            #client_methods_proto
         }
     }
 }
 
-fn generate_client_register_method() -> TokenStream {
+fn generate_client_method_new() -> TokenStream {
     quote! {
-        pub async fn register(service: T) -> Result<Self, RegisterError> {
-            RepcClient::register(service)
-                .await
-                .map(|client| {
-                    Self { inner: client }
-            })
+        pub fn new(service: T) -> Self {
+            Self {
+                inner: RepcClient::new(service),
+            }
         }
     }
 }
 
-fn generate_client_proto_methods(service: &Service, proto_path: &str) -> TokenStream {
+fn generate_client_methods_proto(service: &Service, proto_path: &str) -> TokenStream {
     let mut stream = TokenStream::new();
     for method in &service.methods {
         let name = Ident::new(&method.name, Span::call_site());

@@ -5,13 +5,11 @@ use self::{
     error::{ConversionError, HandleError},
     message::{RaftRequest, RaftResponse, ResponseResult},
 };
-use crate::{
-    pb::raft::{
-        raft_server::Raft, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
-        RequestVoteResponse,
-    },
-    util,
+use crate::pb::raft::{
+    raft_server::Raft, AppendEntriesRequest, AppendEntriesResponse, RequestVoteRequest,
+    RequestVoteResponse,
 };
+use repc_common::util::{clone_request, clone_response};
 use std::{convert::TryFrom, sync::Arc};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tonic::{Request, Response, Status};
@@ -115,7 +113,7 @@ impl<S: Raft> Handle<S> {
         let (request, tx) = self.get_request_of::<RequestVoteRequest>().await?;
         let response = self
             .service
-            .request_vote(util::clone_request(&request))
+            .request_vote(clone_request(&request))
             .await
             .map(|r| r.map(RaftResponse::RequestVote));
         let handle = ResponseHandle::<RequestVoteResponse>::new(response, tx);
@@ -134,7 +132,7 @@ impl<S: Raft> Handle<S> {
         let (request, tx) = self.get_request_of::<AppendEntriesRequest>().await?;
         let response = self
             .service
-            .append_entries(util::clone_request(&request))
+            .append_entries(clone_request(&request))
             .await
             .map(|r| r.map(RaftResponse::AppendEntries));
         let handle = ResponseHandle::<AppendEntriesResponse>::new(response, tx);
@@ -207,7 +205,7 @@ where
         let response = self
             .response
             .as_ref()
-            .map(|r| util::clone_response(r))
+            .map(|r| clone_response(r))
             .map_err(|s| s.clone());
 
         self.tx
