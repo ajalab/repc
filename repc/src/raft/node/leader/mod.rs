@@ -203,8 +203,10 @@ where
         }
     }
 
-    pub fn extract_state(&mut self) -> State<S, L> {
-        Arc::try_unwrap(self.state.take().unwrap())
+    pub fn into_state(self) -> State<S, L> {
+        let state = self.state.unwrap();
+
+        Arc::try_unwrap(state)
             .ok()
             .expect("should have")
             .into_inner()

@@ -19,7 +19,7 @@ use crate::{
 };
 use bytes::Bytes;
 use repc_common::types::{ClientId, NodeId, Sequence};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, mem, sync::Arc};
 use tokio::sync::{mpsc, oneshot};
 use tonic::{body::BoxBody, client::GrpcService, codegen::StdError};
 use tracing::Instrument;
@@ -301,7 +301,8 @@ where
             "going to become a follower"
         );
 
-        let state = self.role.extract_state();
+        let role = self.extract_role();
+        let state = role.into_state();
         if term > self.election.term {
             self.election.voted_for = None;
             self.election.term = term;
@@ -325,7 +326,8 @@ where
             "going to become a candidate"
         );
 
-        let state = self.role.extract_state();
+        let role = self.extract_role();
+        let state = role.into_state();
         self.election.term += 1;
         self.election.voted_for = Some(self.id);
 
@@ -344,15 +346,22 @@ where
 
     fn trans_state_leader(&mut self) {
         tracing::info!(term = self.election.term.get(), "going to become a leader");
+
+        let role = self.extract_role();
+        let state = role.into_state();
         self.role = Role::Leader {
             leader: leader::Leader::spawn(
                 self.id,
                 self.conf.clone(),
                 self.election.term,
-                self.role.extract_state(),
+                state,
                 self.sessions.clone(),
                 &self.clients,
             ),
         };
+    }
+
+    fn extract_role(&mut self) -> Role<S, L> {
+        mem::replace(&mut self.role, Role::default())
     }
 }

@@ -145,3 +145,43 @@ async fn success_two_candidates() {
         AppendEntriesRequest { term: 2, .. }
     ));
 }
+
+#[tokio::test]
+async fn two_elections() {
+    init();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
+    let mut handle = group.spawn();
+    let mut h12 = handle.raft_handle(1, 2).clone();
+    let mut h13 = handle.raft_handle(1, 3).clone();
+    let mut h21 = handle.raft_handle(2, 1).clone();
+    let mut h23 = handle.raft_handle(2, 3).clone();
+
+    let _ = handle.force_election_timeout(1).await;
+
+    // Node 1 collects votes and becomes a leader
+    futures::join!(
+        h12.expect_request_vote_success(),
+        h13.expect_request_vote_success(),
+    );
+
+    // Node 1 sends initial heartbeats to others
+    futures::join!(
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    );
+
+    // Election timeout occurs on Node 2
+    let _ = handle.force_election_timeout(2).await;
+
+    let _ = futures::join!(
+        h21.expect_request_vote_success(),
+        h23.block_request_vote_request(),
+    );
+
+    // Node 2 sends initial heartbeats to others
+    futures::join!(
+        h21.expect_append_entries_success(),
+        h23.expect_append_entries_success(),
+    );
+}

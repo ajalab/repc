@@ -156,16 +156,17 @@ where
     }
 
     async fn run(mut self) {
-        let state = match self.state.upgrade() {
-            Some(state) => state,
-            None => {
-                tracing::info!("failed to acquire strong reference to the state; likely not being a leader anymore");
-                return;
-            }
+        self.committed_index = {
+            let state = match self.state.upgrade() {
+                Some(state) => state,
+                None => {
+                    tracing::info!("failed to acquire strong reference to the state; likely not being a leader anymore");
+                    return;
+                }
+            };
+            let state = state.as_ref().read().await;
+            state.last_committed()
         };
-        let state = state.as_ref().read().await;
-        self.committed_index = state.last_committed();
-        drop(state);
 
         let span = tracing::info_span!(
             target: "leader::commit_manager",

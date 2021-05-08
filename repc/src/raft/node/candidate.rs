@@ -191,11 +191,11 @@ where
                                 })
                                 .await;
                             if let Err(e) = r {
-                                tracing::error!("failed to send message to node: {}", e);
+                                tracing::warn!("failed to send message to node: {}", e);
                             }
                         }
                         Err(e) => {
-                            tracing::error!("sending request vote request failed: {}", e);
+                            tracing::warn!("sending request vote request failed: {}", e);
                         }
                     }
                 }
@@ -214,7 +214,7 @@ where
         let _ = tx.send(Err(CommandError::NotLeader(Some(self.id))));
     }
 
-    pub fn extract_state(&mut self) -> State<S, L> {
-        self.state.take().unwrap()
+    pub fn into_state(self) -> State<S, L> {
+        self.state.unwrap()
     }
 }

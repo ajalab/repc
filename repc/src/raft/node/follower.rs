@@ -86,8 +86,8 @@ where
             .await;
     }
 
-    pub fn extract_state(&mut self) -> State<S, L> {
-        self.inner.extract_state()
+    pub fn into_state(self) -> State<S, L> {
+        self.inner.into_state()
     }
 }
 
@@ -276,8 +276,8 @@ where
         let _ = tx.send(Err(CommandError::NotLeader(self.leader)));
     }
 
-    fn extract_state(&mut self) -> State<S, L> {
-        self.state.take().unwrap()
+    fn into_state(self) -> State<S, L> {
+        self.state.unwrap()
     }
 }
 

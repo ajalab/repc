@@ -44,15 +44,6 @@ where
         }
     }
 
-    pub fn extract_state(&mut self) -> State<S, L> {
-        match self {
-            Role::Stopped { state } => state.take().unwrap(),
-            Role::Follower { follower } => follower.extract_state(),
-            Role::Candidate { candidate } => candidate.extract_state(),
-            Role::Leader { leader } => leader.extract_state(),
-        }
-    }
-
     pub async fn handle_request_vote_request(
         &mut self,
         req: RequestVoteRequest,
@@ -141,5 +132,20 @@ where
                 let _ = tx.send(Err(CommandError::NotLeader(None)));
             }
         }
+    }
+
+    pub fn into_state(self) -> State<S, L> {
+        match self {
+            Role::Stopped { state } => state.unwrap(),
+            Role::Follower { follower } => follower.into_state(),
+            Role::Candidate { candidate } => candidate.into_state(),
+            Role::Leader { leader } => leader.into_state(),
+        }
+    }
+}
+
+impl<S, L> Default for Role<S, L> {
+    fn default() -> Self {
+        Role::Stopped { state: None }
     }
 }
