@@ -9,7 +9,7 @@ use repc::{
 };
 
 #[tokio::test]
-async fn success_one_candidate() {
+async fn success_1_candidates() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
@@ -67,7 +67,7 @@ async fn success_one_candidate() {
 }
 
 #[tokio::test]
-async fn success_two_candidates() {
+async fn success_2_candidates() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
@@ -147,7 +147,7 @@ async fn success_two_candidates() {
 }
 
 #[tokio::test]
-async fn two_elections() {
+async fn success_2_elections() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);

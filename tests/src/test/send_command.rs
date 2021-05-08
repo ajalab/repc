@@ -10,38 +10,43 @@ use repc::{
         pb::raft::raft_server::Raft,
     },
 };
-use repc_common::pb::repc::repc_server::RepcServer;
+use repc_client::codegen::NodeId;
+use repc_common::{metadata::status::StatusMetadata, pb::repc::repc_server::RepcServer};
 
-async fn make_1_leader<R: Raft + Clone>(handle: &mut PartitionedLocalRepcGroupHandle<R>) {
-    let mut h12 = handle.raft_handle(1, 2).clone();
-    let mut h13 = handle.raft_handle(1, 3).clone();
+async fn make_leader<R: Raft + Clone>(
+    handle: &mut PartitionedLocalRepcGroupHandle<R>,
+    leader_id: NodeId,
+) {
+    let mut hs = handle
+        .nodes()
+        .filter_map(|id| {
+            if id == leader_id {
+                None
+            } else {
+                Some(handle.raft_handle(leader_id, id).clone())
+            }
+        })
+        .collect::<Vec<_>>();
+    let _ = handle.force_election_timeout(leader_id).await;
 
-    let _ = handle.force_election_timeout(1).await;
+    // Leader collects votes and becomes a leader
+    futures::future::join_all(hs.iter_mut().map(|h| h.expect_request_vote_success())).await;
 
-    // Node 1 collects votes and becomes a leader
-    futures::join!(
-        h12.expect_request_vote_success(),
-        h13.expect_request_vote_success(),
-    );
-
-    // Node 1 sends initial heartbeats to others
-    futures::join!(
-        h12.expect_append_entries_success(),
-        h13.expect_append_entries_success(),
-    );
+    // Leader sends initial heartbeats to others
+    futures::future::join_all(hs.iter_mut().map(|h| h.expect_append_entries_success())).await;
 }
 
 #[tokio::test]
-async fn healthy() {
+async fn success_0_partitions() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
     let mut handle = group.spawn();
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
-
-    make_1_leader(&mut handle).await;
     let mut client = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
+
+    make_leader(&mut handle, 1).await;
 
     let res = futures::join!(
         client.get_mut().register(),
@@ -69,16 +74,16 @@ async fn healthy() {
 }
 
 #[tokio::test]
-async fn block_append_entries_request_minor() {
+async fn success_1_partitions() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
     let mut handle = group.spawn();
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
-
-    make_1_leader(&mut handle).await;
     let mut client = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
+
+    make_leader(&mut handle, 1).await;
 
     let res = futures::join!(
         client.get_mut().register(),
@@ -100,7 +105,7 @@ async fn block_append_entries_request_minor() {
 /// TODO: Fail AppendEntries after retry count reaches the limit
 #[tokio::test]
 #[ignore]
-async fn block_append_entries_request_major() {
+async fn fail_2_partitions() {
     init();
     let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
         partitioned_group(3);
@@ -108,7 +113,7 @@ async fn block_append_entries_request_major() {
     let mut h12 = handle.raft_handle(1, 2).clone();
     let mut h13 = handle.raft_handle(1, 3).clone();
 
-    make_1_leader(&mut handle).await;
+    make_leader(&mut handle, 1).await;
     let mut client = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
 
     let res = futures::join!(
@@ -127,4 +132,106 @@ async fn block_append_entries_request_major() {
     )
     .0;
     assert!(res.is_err());
+}
+
+#[tokio::test]
+async fn fail_register_non_leader() {
+    init();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
+    let mut handle = group.spawn();
+    let mut client2 = AdderClient::new(RepcServer::new(handle.repc_service(2).clone()));
+    let mut client3 = AdderClient::new(RepcServer::new(handle.repc_service(3).clone()));
+
+    make_leader(&mut handle, 1).await;
+
+    let status = client2.get_mut().register().await.unwrap_err();
+    assert_eq!(
+        Ok(Some(Some(1))),
+        StatusMetadata::decode_retry(status.metadata())
+    );
+
+    let status = client3.get_mut().register().await.unwrap_err();
+    assert_eq!(
+        Ok(Some(Some(1))),
+        StatusMetadata::decode_retry(status.metadata())
+    );
+}
+
+#[tokio::test]
+async fn fail_command_non_leader() {
+    init();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
+    let mut handle = group.spawn();
+    let mut h12 = handle.raft_handle(1, 2).clone();
+    let mut h13 = handle.raft_handle(1, 3).clone();
+    let mut client1 = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
+    let mut client2 = AdderClient::new(RepcServer::new(handle.repc_service(2).clone()));
+
+    make_leader(&mut handle, 1).await;
+
+    let res = futures::join!(
+        client1.get_mut().register(),
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    )
+    .0;
+    assert!(res.is_ok());
+
+    let status = client2.add(AddRequest { i: 10 }).await.unwrap_err();
+    assert_eq!(
+        Ok(Some(Some(1))),
+        StatusMetadata::decode_retry(status.metadata())
+    );
+}
+
+#[tokio::test]
+async fn success_2_elections() {
+    init();
+    let group: PartitionedLocalRepcGroup<AdderStateMachine<AdderState>, InMemoryLog> =
+        partitioned_group(3);
+    let mut handle = group.spawn();
+    let mut h12 = handle.raft_handle(1, 2).clone();
+    let mut h13 = handle.raft_handle(1, 3).clone();
+    let mut h21 = handle.raft_handle(2, 1).clone();
+    let mut h23 = handle.raft_handle(2, 3).clone();
+    let mut client1 = AdderClient::new(RepcServer::new(handle.repc_service(1).clone()));
+    let mut client2 = AdderClient::new(RepcServer::new(handle.repc_service(2).clone()));
+
+    make_leader(&mut handle, 1).await;
+
+    let res = futures::join!(
+        client1.get_mut().register(),
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    )
+    .0;
+    assert!(res.is_ok());
+
+    let res = futures::join!(
+        client1.add(AddRequest { i: 10 }),
+        h12.expect_append_entries_success(),
+        h13.expect_append_entries_success(),
+    )
+    .0;
+    assert_eq!(AddResponse { n: 10 }, res.unwrap().into_inner());
+
+    make_leader(&mut handle, 2).await;
+
+    let res = futures::join!(
+        client2.get_mut().register(),
+        h21.expect_append_entries_success(),
+        h23.expect_append_entries_success(),
+    )
+    .0;
+    assert!(res.is_ok());
+
+    let res = futures::join!(
+        client2.add(AddRequest { i: 20 }),
+        h21.expect_append_entries_success(),
+        h23.expect_append_entries_success(),
+    )
+    .0;
+    assert_eq!(AddResponse { n: 30 }, res.unwrap().into_inner());
 }

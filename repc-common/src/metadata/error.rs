@@ -1,5 +1,5 @@
 use std::fmt;
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MetadataDecodeError {
     NotExist(&'static str),
     Invalid { key: &'static str, error: String },
