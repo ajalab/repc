@@ -210,7 +210,7 @@ where
 
         self.tx
             .send(response)
-            .map_err(|_| HandleError::ServiceDropped)?;
+            .map_err(|r| HandleError::HandleDropped)?;
 
         Ok(self
             .response
@@ -220,7 +220,7 @@ where
     pub fn block_response(self) -> Result<ResponseResult<Response>, HandleError> {
         self.tx
             .send(Err(Status::internal("response blocked")))
-            .map_err(|_| HandleError::ServiceDropped)?;
+            .map_err(|_| HandleError::HandleDropped)?;
 
         Ok(self
             .response

@@ -68,7 +68,7 @@ where
                     Ok(Some(Some(i))) => {
                         self.id = i;
                     }
-                    Ok(Some(None)) => match candidates.pop() {
+                    _ => match candidates.pop() {
                         Some(i) => {
                             self.id = i;
                         }
@@ -76,15 +76,12 @@ where
                             return Err(status);
                         }
                     },
-                    _ => {
-                        return Err(status);
-                    }
                 },
             }
             n -= 1;
         }
 
-        Err(Status::unknown("retry exhausted"))
+        Err(Status::unknown("register retry exhausted"))
     }
 
     async fn unary(
@@ -107,7 +104,7 @@ where
                     Ok(Some(Some(i))) => {
                         self.id = i;
                     }
-                    Ok(Some(None)) => match candidates.pop() {
+                    _ => match candidates.pop() {
                         Some(i) => {
                             self.id = i;
                         }
@@ -115,15 +112,12 @@ where
                             return Err(status);
                         }
                     },
-                    _ => {
-                        return Err(status);
-                    }
                 },
             }
             n -= 1;
         }
 
-        Err(Status::unknown("retry exhausted"))
+        Err(Status::unknown("command retry exhausted"))
     }
 }
 
@@ -187,26 +181,36 @@ where
         Req: prost::Message + Clone,
         Res: prost::Message + Default,
     {
-        if self.session.is_none() {
-            self.register().await?;
-        }
-        let session = self.session.as_ref().unwrap();
-        let request = Self::encode_request(path, req, session);
+        let request = Self::encode_request(path, req);
+        let mut n = 10;
+        while n > 0 {
+            if self.session.is_none() {
+                self.register().await?;
+            }
+            let session = self.session.as_ref().unwrap();
 
-        self.client
-            .unary(clone_request(&request))
-            .await
-            .and_then(|res| {
-                let res = Self::decode_response::<Res>(res);
-                res
-            })
+            let mut request = clone_request(&request);
+            let metadata = RequestMetadata {
+                client_id: session.client_id,
+                sequence: session.sequence,
+            };
+            let _ = metadata.encode(request.metadata_mut());
+
+            match self.client.unary(clone_request(&request)).await {
+                Ok(res) => return Self::decode_response::<Res>(res),
+                Err(s) => match StatusMetadata::decode_register(s.metadata()) {
+                    Ok(true) => {
+                        self.session = None;
+                    }
+                    _ => return Err(s),
+                },
+            }
+            n -= 1;
+        }
+        Err(Status::unknown("register retry exhausted"))
     }
 
-    fn encode_request<P, Req>(
-        path: P,
-        req: impl IntoRequest<Req>,
-        session: &Session,
-    ) -> Request<CommandRequest>
+    fn encode_request<P, Req>(path: P, req: impl IntoRequest<Req>) -> Request<CommandRequest>
     where
         P: AsRef<str>,
         Req: prost::Message,
@@ -223,12 +227,6 @@ where
         });
         *request.metadata_mut() = md;
 
-        let metadata = RequestMetadata {
-            client_id: session.client_id,
-            sequence: session.sequence,
-        };
-
-        let _ = metadata.encode(request.metadata_mut());
         request
     }
 

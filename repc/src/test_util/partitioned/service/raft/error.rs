@@ -4,6 +4,7 @@ use tonic::Status;
 #[derive(Debug, Eq, PartialEq)]
 pub enum HandleError {
     ServiceDropped,
+    HandleDropped,
     NoPendingResponse,
     ConversionError(ConversionError),
 }
@@ -11,7 +12,8 @@ pub enum HandleError {
 impl fmt::Display for HandleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            HandleError::ServiceDropped => write!(f, "service was dropped"),
+            HandleError::ServiceDropped => write!(f, "service has been dropped"),
+            HandleError::HandleDropped => write!(f, "handle has been dropped"),
             HandleError::NoPendingResponse => write!(f, "no pending responses"),
             HandleError::ConversionError(e) => e.fmt(f),
         }

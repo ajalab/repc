@@ -119,7 +119,12 @@ impl From<CommandError> for Status {
             CommandError::CommitError(_) => Some(None),
             _ => None,
         };
-        let metadata = StatusMetadata { retry };
+        let register = match e {
+            CommandError::SessionError(SessionError::ClientNotRegistered) => true,
+            _ => false,
+        };
+
+        let metadata = StatusMetadata { retry, register };
 
         let message = e.to_string();
         let mut status = Status::new(code, message);
