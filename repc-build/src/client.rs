@@ -9,6 +9,7 @@ pub fn generate(service: &Service, proto_path: &str) -> TokenStream {
     let client_def = generate_client_def(service);
     let client_impl = generate_client_impl(service);
     let client_service_impl = generate_client_service_impl(service, proto_path);
+    let client_channel_impl = generate_client_channel_impl(service);
     quote! {
         pub mod #mod_name {
             #type_defs
@@ -18,6 +19,8 @@ pub fn generate(service: &Service, proto_path: &str) -> TokenStream {
             #client_impl
 
             #client_service_impl
+
+            #client_channel_impl
         }
     }
 }
@@ -27,7 +30,9 @@ fn generate_type_defs() -> TokenStream {
         type StdError = Box<dyn std::error::Error + Send + Sync + 'static>;
         use repc_client::{
             RepcClient,
-            codegen::{TonicBody, HttpBody},
+            configuration::Configuration,
+            codegen::{TonicBody, HttpBody, NodeId},
+            error::ToChannelError,
         };
     }
 }
@@ -75,9 +80,12 @@ fn generate_client_service_impl(service: &Service, proto_path: &str) -> TokenStr
 
 fn generate_client_method_new() -> TokenStream {
     quote! {
-        pub fn new(service: T) -> Self {
+        pub fn new<I>(services: I) -> Self
+        where
+            I: IntoIterator<Item = (NodeId, T)>,
+        {
             Self {
-                inner: RepcClient::new(service),
+                inner: RepcClient::new(services),
             }
         }
     }
@@ -109,6 +117,19 @@ fn generate_client_methods_proto(service: &Service, proto_path: &str) -> TokenSt
     }
 
     stream
+}
+
+fn generate_client_channel_impl(service: &Service) -> TokenStream {
+    let name = resolve_client_name(service);
+    quote! {
+        impl #name<tonic::transport::Channel>
+        {
+            pub fn from_conf(conf: Configuration) -> Result<Self, ToChannelError> {
+                let inner = RepcClient::from_conf(conf)?;
+                Ok(Self { inner })
+            }
+        }
+    }
 }
 
 fn resolve_client_name(service: &Service) -> Ident {

@@ -1,20 +1,18 @@
 use std::fmt;
-use tonic::Status;
 
 #[derive(Debug)]
-pub struct RegisterError(Status);
-
-impl RegisterError {
-    pub fn new(status: Status) -> Self {
-        RegisterError(status)
-    }
+pub enum ToChannelError {
+    HttpError(http::Error),
+    TransportError(tonic::transport::Error),
 }
 
-impl fmt::Display for RegisterError {
+impl fmt::Display for ToChannelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RegisterError: ")?;
-        self.0.fmt(f)
+        match self {
+            ToChannelError::HttpError(e) => write!(f, "failed to parse: {}", e),
+            ToChannelError::TransportError(e) => write!(f, "failed to connect: {}", e),
+        }
     }
 }
 
-impl std::error::Error for RegisterError {}
+impl std::error::Error for ToChannelError {}
