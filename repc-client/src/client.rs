@@ -102,13 +102,32 @@ where
                 Ok(res) => return Ok(res),
                 Err(status) => match StatusMetadata::decode_retry(status.metadata()) {
                     Ok(Some(Some(i))) => {
+                        // println!(
+                        //     "error connecting to {}: status: {}. next: {} (recommended)",
+                        //     id, status, i
+                        // );
                         self.id = i;
+                    }
+                    Ok(Some(None)) => {
+                        // println!(
+                        //     "error connecting to {}: status: {}. stop retrying",
+                        //     id, status
+                        // );
+                        return Err(status);
                     }
                     _ => match candidates.pop() {
                         Some(i) => {
+                            // println!(
+                            //     "error connecting to {}: status: {}. next: {} (random pick)",
+                            //     id, status, i
+                            // );
                             self.id = i;
                         }
                         None => {
+                            // println!(
+                            //     "error connecting to {}: status: {}. no candidates left",
+                            //     id, status,
+                            // );
                             return Err(status);
                         }
                     },
