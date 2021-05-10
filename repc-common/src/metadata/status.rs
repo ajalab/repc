@@ -9,8 +9,8 @@ use tonic::metadata::{MetadataMap, MetadataValue};
 
 pub struct StatusMetadata {
     /// Represents how a client can retry the RPC call.
-    /// - `None`: client cannot retry automatically.
-    /// - `Some(None)`: client can retry with artbirary nodes.
+    /// - `None`: client can retry with artbirary nodes.
+    /// - `Some(None)`: client cannot retry automatically.
     /// - `Some(Some(id))`: client can retry with the given node.
     pub retry: Option<Option<NodeId>>,
 

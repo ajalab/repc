@@ -116,7 +116,9 @@ impl From<CommandError> for Status {
 
         let retry = match e {
             CommandError::NotLeader(id) => Some(id),
-            CommandError::CommitError(_) => Some(None),
+            // TODO: guide to retry with the same node
+            // CommandError::CommitError(_) => Some(None)
+            CommandError::SessionError(SessionError::ClientNotRegistered) => Some(None),
             _ => None,
         };
         let register = match e {
