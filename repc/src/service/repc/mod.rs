@@ -66,7 +66,7 @@ impl Repc for RepcService {
         &self,
         _request: Request<Streaming<CommandRequest>>,
     ) -> Result<tonic::Response<CommandResponse>, Status> {
-        Err(Status::internal("unimplemented"))
+        Err(Status::internal("client stream is unimplemented"))
     }
 
     type ServerStreamCommandStream = ReceiverStream<Result<CommandResponse, Status>>;
@@ -75,7 +75,7 @@ impl Repc for RepcService {
         &self,
         _request: Request<CommandRequest>,
     ) -> Result<Response<Self::ServerStreamCommandStream>, Status> {
-        Err(Status::internal("unimplemented"))
+        Err(Status::internal("server stream is unimplemented"))
     }
 }
 
